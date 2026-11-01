@@ -1,0 +1,12 @@
+CC0 1.0 Universal (Public Domain Dedication)  -  5 Free Low-Poly Toy Cars
+
+To the extent possible under law, Popyca Studio has waived all copyright and related or neighbouring rights to these 5 toy car models.
+You can copy, modify, distribute and use them, even for commercial purposes, all without asking permission and without attribution.
+Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+The models are provided as-is, without warranty.
+They are original work, built procedurally by our own code with AI-assisted tooling. Generic toy cars: no real vehicle makes, logos or trademarks.
+Want all 50 vehicles (150 colourways, GLB + FBX)? https://vuena.itch.io/toy-cars-20
+
+Source: 5 Free Toy Cars (CC0), https://vuena.itch.io/toy-cars-5-free
+The 5 GLB files here are copied unchanged from that free sample (v3). The paid 50-vehicle pack is NOT in this repository.

@@ -105,7 +105,11 @@ async function boot() {
     st.stock = id === 'soda' ? 5 : 0; st.inst.count = st.stock; st.perCarton = Math.ceil(st.cap / 4);
   }
   buildNav(); buildZones();
-  player = makePerson('player'); player.position.set(6, 0, 5.6); player.rotation.y = Math.PI; scene.add(player);
+  // static world: freeze local matrices below the top-level groups (top-level groups stay live for the pop-in animation)
+  scene.updateMatrixWorld(true); for (const top of scene.children) top.traverse((o) => { if (o !== top) { o.matrixAutoUpdate = false; } });
+  renderer.shadowMap.autoUpdate = false; // refreshed every second frame in loop()
+  for (const z of [...zones, ...pads]) z.fill.matrixAutoUpdate = true; // progress discs animate by scale
+  player = makePerson(models, 'player'); player.position.set(6, 0, 5.6); player.rotation.y = Math.PI; scene.add(player);
   player.userData.carry = []; player.userData.carryType = null; player.userData.carryObjs = [];
   input = new Input(canvas, { onGear: (d) => shiftGear(d), onAny: () => audio.unlock(), isTouch: TOUCH });
   input.setEnabled(false);
@@ -137,7 +141,7 @@ function buildNav() {
 function markCars() {
   navDyn.fill(0); const inf = 0.3;
   for (const c of ENT.cars) { if (c.ambient || !(c.state === 'wait' || c.state === 'park')) continue; const b = baySpot(c.pump), hl = c.mesh.userData.len / 2;
-    const [ix0, iz0] = cellOf(b.x - 0.95 - inf, b.z - hl - inf), [ix1, iz1] = cellOf(b.x + 0.95 + inf, b.z + hl + inf);
+    const hw = c.mesh.userData.width / 2; const [ix0, iz0] = cellOf(b.x - hw - inf, b.z - hl - inf), [ix1, iz1] = cellOf(b.x + hw + inf, b.z + hl + inf);
     for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) navDyn[iz * NAV.nx + ix] = 1; }
 }
 const blockedAt = (i) => navBlocked[i] || navDyn[i];
@@ -259,7 +263,7 @@ function pickWants(n) {
   return out;
 }
 function spawnCustomer(from, car, wants) {
-  const mesh = makePerson('customer'); scene.add(mesh); mesh.position.set(from.x, 0, from.z);
+  const mesh = makePerson(models, 'customer', { night: G.shift === 2 }); scene.add(mesh); mesh.position.set(from.x, 0, from.z);
   const c = { mesh, pos: { ...from }, state: 'toDoor', wants: wants || pickWants(1 + (Math.random() < 0.45) + (Math.random() < 0.15)), basket: [], car, home: from, pat: 0, patMax: 30 * patienceMul(), path: null, speed: rnd(2.0, 2.5), wait: 0, item: null };
   if (!c.wants.length) { scene.remove(mesh); return null; }
   goTo(c, SPOTS.doorOut); ENT.people.push(c); return c;
@@ -371,7 +375,7 @@ function movePlayer(dt) {
   const mv = Math.hypot(v.x, v.y);
   let x = player.position.x + v.x * sp * dt, z = player.position.z + v.y * sp * dt;
   const R = 0.32;
-  const cols = activeColliders(); for (const c of ENT.cars) if (!c.ambient && (c.state === 'wait' || c.state === 'park')) { const b = baySpot(c.pump); const hw = 0.95, hl = c.mesh.userData.len / 2 + 0.05; cols.push({ x0: b.x - hw, x1: b.x + hw, z0: b.z - hl, z1: b.z + hl }); }
+  const cols = activeColliders(); for (const c of ENT.cars) if (!c.ambient && (c.state === 'wait' || c.state === 'park')) { const b = baySpot(c.pump); const hw = c.mesh.userData.width / 2 + 0.03, hl = c.mesh.userData.len / 2 + 0.05; cols.push({ x0: b.x - hw, x1: b.x + hw, z0: b.z - hl, z1: b.z + hl }); }
   for (let pass = 0; pass < 2; pass++) for (const c of cols) {
     const cx = clamp(x, c.x0, c.x1), cz = clamp(z, c.z0, c.z1); const dx = x - cx, dz = z - cz, d = Math.hypot(dx, dz);
     if (d < R) { if (d > 1e-5) { x = cx + (dx / d) * R; z = cz + (dz / d) * R; } else { const l = x - c.x0, r = c.x1 - x, t = z - c.z0, b = c.z1 - z, m = Math.min(l, r, t, b); if (m === l) x = c.x0 - R; else if (m === r) x = c.x1 + R; else if (m === t) z = c.z0 - R; else z = c.z1 + R; } }
@@ -523,7 +527,7 @@ function spawner(dt) {
 
 // ---------------------------------------------------------------- staff (hired helpers)
 function hire(kind) {
-  const mesh = makePerson('staff'); scene.add(mesh); const s = { kind, mesh, pos: { x: 6, z: -2 }, path: null, state: 'idle', carry: 0, t: 0 };
+  const mesh = makePerson(models, 'staff'); scene.add(mesh); const s = { kind, mesh, pos: { x: 6, z: -2 }, path: null, state: 'idle', carry: 0, t: 0 };
   mesh.position.set(6, 0, -2); ENT.staff.push(s); toast(`Your new ${kind} clocked in!`, 'good');
 }
 function updateStaff(dt) {
@@ -582,7 +586,7 @@ function updateLabels(dt) {
   frameNo++;
   for (const car of ENT.cars) {
     if (car.state !== 'wait' || car.ambient) continue; const f = car.pat / car.patMax; const ic = [car.needs.fuel && ICON.fuel, car.needs.jerry && ICON.jerry, car.needs.tyre && ICON.tyre].filter(Boolean).join('');
-    if (ic) label(car, `<div class="bub${f < 0.25 ? ' mad' : ''}">${ic}${patBar(f)}</div>`, { x: car.pos.x, y: car.mesh.userData.truck ? 2.9 : 2.3, z: car.pos.z });
+    if (ic) label(car, `<div class="bub${f < 0.25 ? ' mad' : ''}">${ic}${patBar(f)}</div>`, { x: car.pos.x, y: car.mesh.userData.h + 0.45, z: car.pos.z });
   }
   for (const c of ENT.people) {
     const f = c.pat / c.patMax;
@@ -664,6 +668,7 @@ function pause(on) { if (on && G.state === 'play') { G.state = 'paused'; input.s
 // ---------------------------------------------------------------- camera + render loop
 const camT = new THREE.Vector3(6, 0, 2); const PITCH = 1.0;
 function updateCamera(dt, snap) {
+  if (G.camOverride) { const o = G.camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); return; } // QA close-ups only
   let tx, tz;
   if (G.state === 'title' || G.state === 'loading') { const a = G.t * 0.08; tx = 6 + Math.sin(a) * 3; tz = -1 + Math.cos(a) * 2; }
   else { tx = clamp(player.position.x, -2, 17); tz = clamp(player.position.z - 0.8, -8.5, 6.5); }
@@ -694,6 +699,7 @@ function loop(now) {
   for (const z of zones) { if (!z.g.visible) continue; z.fill.scale.setScalar(Math.max(0.001, clamp(z.prog, 0, 1))); const pulse = guideTo && dist(z, guideTo) < 0.1 ? 0.6 + 0.4 * Math.sin(G.t * 8) : 0.85; z.ring.material.opacity = pulse; }
   updateGuide(rdt);
   if (W && player && G.state !== 'review') { updateCamera(rdt); updateLabels(rdt); }
+  if ((frameNo & 1) === 0 || G.state === 'review') renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
   if (G.state === 'play' && G.tut < 6 && frameNo % 15 === 0) tutShow();
 }

@@ -140,6 +140,7 @@ a{color:var(--orange2)}
 #end .score{font-size:44px;font-weight:900;line-height:1}
 #end .kit{display:block;margin-top:12px;padding:10px;border-radius:14px;background:var(--ink);color:#fff;text-decoration:none;font-weight:800;font-size:14px;line-height:1.35}
 #end .kit span{color:var(--orange2)}
+#end .kits2{display:grid;grid-template-columns:1fr 1fr;gap:8px}#end .kits2 .kit{margin-top:8px;font-size:13px}
 /* loader */
 #loader{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 30%,#2b3f70,var(--ink) 70%)}
 #loader .road{position:relative;width:min(70vw,340px);height:10px;border-radius:5px;background:#0c1428;margin-top:28px;overflow:hidden;border:2px solid #2c3e66}
@@ -182,7 +183,7 @@ a{color:var(--orange2)}
     <div id="howMove"><b>Move:</b> WASD / arrows, or drag.<br><b>Work:</b> stand in a ring.</div>
     <div id="howGear"><b>Gearbox:</b> <span class="kbd">R-Shift</span> up, <span class="kbd">L-Shift</span> down (or the &#9650;&#9660; buttons).</div>
   </div>
-  <div class="credits">3D assets: Vuena Simulator Kits Sampler (CC0), <a href="https://vuena.itch.io/simulator-kits-sampler-free" target="_blank" rel="noopener">vuena.itch.io/simulator-kits-sampler-free</a>. The full Store, Gas Station, Apartment and Factory kits are on <a href="https://vuena.itch.io" target="_blank" rel="noopener">vuena.itch.io</a>. Sounds: Kenney (CC0). Code: MIT.</div>
+  <div class="credits">3D assets: Vuena Simulator Kits Sampler (CC0), <a href="https://vuena.itch.io/simulator-kits-sampler-free" target="_blank" rel="noopener">vuena.itch.io/simulator-kits-sampler-free</a> &middot; Characters: 8 Free Blocky Characters (CC0), <a href="https://vuena.itch.io/blocky-characters-free-sample" target="_blank" rel="noopener">vuena.itch.io/blocky-characters-free-sample</a> &middot; Cars: 5 Free Toy Cars (CC0), <a href="https://vuena.itch.io/toy-cars-5-free" target="_blank" rel="noopener">vuena.itch.io/toy-cars-5-free</a>. The full kits and packs are on <a href="https://vuena.itch.io" target="_blank" rel="noopener">vuena.itch.io</a>. Sounds: Kenney (CC0). Code: MIT.</div>
 </div>
 <div class="jam hidden" id="jamTag">GitHub Game Off 2026 &middot; theme SHIFT</div>
 
@@ -208,7 +209,8 @@ a{color:var(--orange2)}
   <p id="endBest" style="font-weight:800"></p>
   <button class="big" id="againBtn">WORK ANOTHER DAY</button>
   <a class="kit" href="https://vuena.itch.io/simulator-kits-sampler-free" target="_blank" rel="noopener">Every prop in this game comes from the free <span>Simulator Kits Sampler (CC0)</span>. Grab the 24 assets free, or the full Store, Gas Station, Apartment and Factory kits on vuena.itch.io.</a>
-  <p style="font-size:11px;opacity:.7;margin-top:10px">3D assets: Vuena Simulator Kits Sampler (CC0) &middot; Sounds: Kenney (CC0) &middot; Code: MIT, written with AI assistance (Claude) &middot; GitHub Game Off 2026</p>
+  <div class="kits2"><a class="kit" href="https://vuena.itch.io/blocky-characters-free-sample" target="_blank" rel="noopener">The people: <span>8 Free Blocky Characters</span> (CC0, rigged + animated)</a><a class="kit" href="https://vuena.itch.io/toy-cars-5-free" target="_blank" rel="noopener">The cars: <span>5 Free Toy Cars</span> (CC0)</a></div>
+  <p style="font-size:11px;opacity:.7;margin-top:10px">3D assets: Vuena Simulator Kits Sampler, 8 Free Blocky Characters, 5 Free Toy Cars (all CC0) &middot; Sounds: Kenney (CC0) &middot; Code: MIT, written with AI assistance (Claude) &middot; GitHub Game Off 2026</p>
 </div></div>
 
 <div id="loader">

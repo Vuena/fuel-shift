@@ -44,8 +44,9 @@ Any static file server works. The game needs to be served over http (ES modules 
 
 - three.js r180 (vendored in `public/vendor`, MIT), no bundler, no framework.
 - Every 3D prop comes from the free CC0 **Vuena Simulator Kits Sampler** (24 GLB models in `public/models`, unchanged).
-  The building shell, ground, road, the people and the car bodies are simple shapes built in code. The car wheels are the
-  sampler's tyre model.
+- The people are the free CC0 **8 Blocky Characters** (rigged; idle, walk and run clips through a three.js `AnimationMixer`,
+  carrying is an arm pose layered on top). The cars are the free CC0 **5 Toy Cars**. Both unchanged, in `public/chars` and `public/cars`.
+- The building shell, ground, road and trees are simple shapes built in code.
 - Customers, staff and the QA autopilot walk on an A* grid; parked cars block paths.
 - Sounds: Kenney CC0 one-shots plus a synthesised engine hum whose pitch follows the gear (WebAudio).
 - Phones: floating joystick in the bottom-left corner zone, big gear buttons bottom-right, hints shown at the controls.
@@ -67,6 +68,9 @@ and they use our headless-Chrome helper from a sibling repo (`popyca-games/scrip
 - **3D assets: Vuena Simulator Kits Sampler (CC0), https://vuena.itch.io/simulator-kits-sampler-free**.
   These are 24 free models from our four paid kits. The full Store, Gas Station, Modular Apartment Interior and Factory
   Simulator Kits (475 assets) are on [vuena.itch.io](https://vuena.itch.io).
+- **Characters: 8 Free Blocky Characters (CC0), https://vuena.itch.io/blocky-characters-free-sample**
+  (free sample of our 48 rigged characters pack).
+- **Cars: 5 Free Toy Cars (CC0), https://vuena.itch.io/toy-cars-5-free** (free sample of our 50 toy cars pack).
 - Sounds: [Kenney](https://kenney.nl) Interface Sounds, Impact Sounds and Music Jingles (CC0).
 - three.js (MIT).
 - Full list: [CREDITS.md](CREDITS.md).
@@ -74,12 +78,13 @@ and they use our headless-Chrome helper from a sibling repo (`popyca-games/scrip
 ## AI disclosure
 
 The code of this game was written with AI assistance (Claude, by Anthropic), directed and reviewed by us.
-The 3D models are from our own sampler kit: procedural Blender code, not AI-generated meshes or textures.
+The 3D models, characters and cars are from our own free CC0 packs, made with our own procedural code (AI-assisted tooling), not AI image or mesh generators.
 The sounds are Kenney's. No AI-generated art or audio is used.
 
 ## Licence
 
 - Code: MIT, see [LICENSE](LICENSE).
-- 3D models in `public/models`: CC0 1.0, see [public/models/LICENSE-CC0.txt](public/models/LICENSE-CC0.txt).
+- 3D models in `public/models`, `public/chars` and `public/cars`: CC0 1.0, see the `LICENSE-CC0.txt` in each folder.
+  Only the free CC0 sample files are in this repository; none of the paid packs.
 - Sounds in `public/sfx`: CC0 1.0 (Kenney).
 - three.js in `public/vendor`: MIT (`public/vendor/three/LICENSE`).
