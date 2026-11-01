@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Fuel Shift</title>
+<meta name="description" content="Run a 24/7 roadside gas station for one day: three shifts, one gearbox. Shift up for more customers, shift down before the night shift eats you. GitHub Game Off 2026 (theme: SHIFT).">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff7a1a'/%3E%3Ctext x='32' y='46' font-size='40' font-family='Arial' font-weight='900' text-anchor='middle' fill='%23fff'%3E5%3C/text%3E%3C/svg%3E">
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/addons/" } }</script>
+<link rel="modulepreload" href="./vendor/three/three.module.min.js"><link rel="modulepreload" href="./vendor/three/three.core.min.js">
+<style>
+:root{--ink:#14213d;--ink2:#1d2f55;--orange:#ff7a1a;--orange2:#ffb347;--teal:#18c6b3;--cream:#fff4e0;--red:#ff4d5e;--green:#3ddc84;--gold:#ffd23f;
+ --sat:env(safe-area-inset-top);--sab:env(safe-area-inset-bottom);--sal:env(safe-area-inset-left);--sar:env(safe-area-inset-right)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:var(--cream);font-family:'Segoe UI',system-ui,-apple-system,Roboto,'Helvetica Neue',Arial,sans-serif;overscroll-behavior:none}
+#c{position:fixed;left:0;top:0;display:block;touch-action:none;outline:none}
+.hidden{display:none!important}
+button{font-family:inherit;cursor:pointer;border:0;color:inherit;background:none;padding:0}
+a{color:var(--orange2)}
+.chip{background:rgba(20,33,61,.82);border:2px solid rgba(255,244,224,.16);border-radius:14px;box-shadow:0 4px 0 rgba(0,0,0,.25)}
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+#cash{position:fixed;left:calc(10px + var(--sal));top:calc(10px + var(--sat));padding:6px 14px 6px 10px;display:flex;align-items:center;gap:8px}
+#cash b{font-size:26px;font-weight:900;letter-spacing:.5px;color:#fff}
+#cash .coin{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6b0,var(--gold) 45%,#d99a00);box-shadow:inset 0 -2px 0 #b07800;display:grid;place-items:center;color:#8a5a00;font-weight:900;font-size:15px}
+#cash.bump{animation:bump .25s}
+@keyframes bump{50%{transform:scale(1.12)}}
+#earned{position:fixed;left:calc(12px + var(--sal));top:calc(58px + var(--sat));font-size:12px;font-weight:700;opacity:.85;text-shadow:0 1px 2px #000}
+#shiftbox{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + var(--sat));padding:6px 14px;text-align:center;min-width:170px}
+#shiftbox .name{font-size:12px;font-weight:900;letter-spacing:2px;color:var(--orange2)}
+#shiftbox .clock{font-size:22px;font-weight:900;line-height:1.05;color:#fff}
+#shiftbox .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.15);margin-top:4px;overflow:hidden}
+#shiftbox .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--orange))}
+#rep{position:fixed;right:calc(10px + var(--sar));top:calc(10px + var(--sat));padding:6px 10px;display:flex;gap:2px;align-items:center}
+#rep .st{width:20px;height:20px;position:relative}
+#rep .st svg{position:absolute;inset:0}
+#rep.warn{animation:warn .6s infinite alternate}
+@keyframes warn{to{border-color:var(--red);box-shadow:0 0 14px var(--red)}}
+#topbtns{position:fixed;right:calc(10px + var(--sar));top:calc(52px + var(--sat));display:flex;gap:6px;pointer-events:auto}
+.ibtn{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:18px;font-weight:900;color:#fff}
+#upgBtn{position:fixed;right:calc(10px + var(--sar));top:calc(102px + var(--sat));pointer-events:auto;padding:8px 12px;font-weight:900;font-size:14px;letter-spacing:.5px;display:flex;align-items:center;gap:6px;color:#fff}
+#upgBtn .dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);display:none}
+#upgBtn.has .dot{display:block}
+#upgBtn.has{border-color:var(--green)}
+/* gearbox */
+#gearbox{position:fixed;right:calc(14px + var(--sar));bottom:calc(16px + var(--sab));pointer-events:auto;display:flex;align-items:center;gap:8px;padding:8px}
+#gearbox .knob{width:74px;height:74px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#4a5a80,#1a2440 70%);border:3px solid #0c1428;display:grid;place-items:center;box-shadow:0 5px 0 #0008,inset 0 2px 0 #fff3;position:relative}
+#gearbox .knob b{font-size:40px;font-weight:900;color:#fff;line-height:1;text-shadow:0 2px 0 #0008}
+#gearbox .knob small{position:absolute;bottom:6px;font-size:9px;font-weight:900;letter-spacing:1px;color:var(--orange2)}
+#gearbox .knob.g4 b,#gearbox .knob.g5 b{color:var(--orange2)}
+#gearbox .knob.flash{animation:gflash .35s}
+@keyframes gflash{40%{transform:scale(1.15);box-shadow:0 0 24px var(--orange)}}
+#gearbox .col{display:flex;flex-direction:column;gap:6px}
+.gbtn{width:54px;height:40px;border-radius:12px;background:var(--orange);color:#fff;font-size:20px;font-weight:900;box-shadow:0 4px 0 #a84300;display:grid;place-items:center;touch-action:none}
+.gbtn.dn{background:#2c3e66;box-shadow:0 4px 0 #0c1428}
+.gbtn:active{transform:translateY(3px);box-shadow:0 1px 0 #0006}
+.gbtn[disabled]{opacity:.35}
+#gearbox .meter{position:absolute;left:8px;right:8px;top:-22px;display:flex;justify-content:space-between;font-size:11px;font-weight:900;color:#fff;text-shadow:0 1px 2px #000}
+#gearkeys{position:fixed;right:calc(14px + var(--sar));bottom:calc(122px + var(--sab));font-size:11px;font-weight:800;opacity:.85;text-align:right;text-shadow:0 1px 2px #000}
+.kbd{display:inline-block;padding:1px 6px;border-radius:5px;background:var(--cream);color:var(--ink);font-weight:900;font-size:11px;box-shadow:0 2px 0 #0006}
+/* carry + toast + labels */
+#carry{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + var(--sab));padding:6px 12px;font-weight:900;font-size:13px;display:none}
+#toast{position:fixed;left:50%;top:calc(76px + var(--sat));transform:translateX(-50%);padding:8px 16px;font-weight:900;font-size:16px;text-align:center;opacity:0;transition:opacity .25s,transform .25s;max-width:88vw}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(4px)}
+#toast.bad{border-color:var(--red)}
+#toast.good{border-color:var(--green)}
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.lab{position:absolute;left:0;top:0;transform:translate(-50%,-100%);white-space:nowrap;will-change:transform}
+.bub{display:flex;align-items:center;gap:3px;padding:3px 6px;border-radius:12px;background:#fff;color:var(--ink);font-weight:900;font-size:14px;box-shadow:0 3px 0 rgba(0,0,0,.25);position:relative}
+.bub:after{content:'';position:absolute;left:50%;bottom:-6px;margin-left:-6px;border:6px solid transparent;border-top-color:#fff;border-bottom:0}
+.bub .pt{width:22px;height:5px;border-radius:3px;background:#ddd;overflow:hidden;margin-left:2px}
+.bub .pt i{display:block;height:100%;background:var(--green)}
+.bub.mad{background:#ffd9dc}
+.bub svg{width:20px;height:20px;display:block}
+.pad{padding:4px 10px;border-radius:10px;background:rgba(20,33,61,.9);border:2px solid var(--gold);font-weight:900;font-size:13px;text-align:center;line-height:1.15}
+.pad small{display:block;font-size:10px;color:var(--orange2);letter-spacing:.5px}
+.pad.cant{border-color:#7a7f8c;opacity:.85}
+.pop{position:absolute;left:0;top:0;font-weight:900;font-size:18px;color:var(--gold);text-shadow:0 2px 0 #7a4b00,0 0 6px #000;pointer-events:none}
+.pop.bad{color:var(--red);text-shadow:0 2px 0 #600,0 0 6px #000}
+.pop.tip{color:var(--green);font-size:14px}
+/* tutorial hint */
+#hint{position:fixed;left:50%;bottom:calc(120px + var(--sab));transform:translateX(-50%);padding:9px 16px;font-weight:800;font-size:15px;text-align:center;max-width:min(92vw,520px);border-color:var(--orange);display:none}
+#hint.touch{left:calc(20px + var(--sal));transform:none;bottom:calc(200px + var(--sab));max-width:min(64vw,300px);font-size:14px}
+#hint.gear{left:auto;right:calc(14px + var(--sar));transform:none;bottom:calc(150px + var(--sab));max-width:min(70vw,300px)}
+#fingerHint{position:fixed;width:70px;height:70px;margin:-35px 0 0 -35px;pointer-events:none;display:none}
+#fingerHint .ring{position:absolute;inset:0;border-radius:50%;border:3px solid var(--orange);animation:ring 1.4s ease-out infinite}
+#fingerHint .finger{position:absolute;left:50%;top:50%;width:22px;height:30px;margin:-10px 0 0 -11px;background:#fff;border-radius:11px 11px 8px 8px;box-shadow:0 2px 6px #000a;animation:fmove 1.8s ease-in-out infinite}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(255,122,26,.7)}100%{box-shadow:0 0 0 20px rgba(255,122,26,0)}}
+@keyframes fmove{0%,100%{transform:translate(0,0)}25%{transform:translate(0,-18px)}50%{transform:translate(16px,0)}75%{transform:translate(0,14px)}}
+#gearPoint{position:fixed;pointer-events:none;display:none;font-size:34px;color:var(--orange);text-shadow:0 2px 0 #000;animation:bob .7s ease-in-out infinite alternate}
+@keyframes bob{to{transform:translateY(-10px)}}
+/* joystick */
+#stick{position:fixed;left:0;top:0;width:116px;height:116px;margin:-58px 0 0 -58px;border-radius:50%;border:3px solid rgba(255,244,224,.35);background:rgba(20,33,61,.25);pointer-events:none;z-index:6;transition:opacity .2s}
+#stick i{position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;border-radius:50%;background:rgba(255,244,224,.5);border:3px solid rgba(255,255,255,.7)}
+#stick.live{border-color:rgba(255,179,71,.8)}
+#stick.off{opacity:0}
+/* ---------- screens ---------- */
+.screen{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;text-align:center;overflow-y:auto}
+.screen.dim{background:rgba(14,22,42,.72);backdrop-filter:blur(2px)}
+.card{background:var(--cream);color:var(--ink);border-radius:22px;padding:20px 20px 18px;max-width:min(94vw,520px);width:100%;box-shadow:0 8px 0 rgba(0,0,0,.3),0 20px 60px rgba(0,0,0,.4)}
+.card h2{margin:0 0 6px;font-size:26px;font-weight:900;letter-spacing:.5px}
+.card p{margin:6px 0;line-height:1.4}
+.big{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--orange);color:#fff;font-weight:900;font-size:20px;letter-spacing:1px;padding:14px 30px;border-radius:16px;box-shadow:0 6px 0 #a84300;margin-top:10px;min-width:200px}
+.big:active{transform:translateY(4px);box-shadow:0 2px 0 #a84300}
+.big.alt{background:var(--ink2);box-shadow:0 6px 0 #0a1224}
+.logo{font-weight:900;font-size:clamp(46px,13vw,92px);line-height:.9;letter-spacing:-1px;color:#fff;text-shadow:0 5px 0 #a84300,0 10px 30px rgba(0,0,0,.45)}
+.logo span{color:var(--orange)}
+.logo .gearchip{display:inline-grid;place-items:center;width:.82em;height:.82em;border-radius:50%;background:var(--ink2);color:var(--orange2);font-size:.62em;vertical-align:.08em;border:.06em solid #fff;text-shadow:none;margin:0 .04em}
+.tag{font-size:clamp(14px,3.8vw,18px);font-weight:700;max-width:560px;margin:14px auto 4px;text-shadow:0 2px 4px rgba(0,0,0,.6)}
+#title{background:radial-gradient(ellipse at 50% 45%,rgba(14,22,42,.55),rgba(14,22,42,.15) 70%)}
+#title .how{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:12px 0 0;font-size:13px;font-weight:700}
+#title .how div{background:rgba(20,33,61,.8);border-radius:12px;padding:8px 10px;max-width:260px;text-align:left;line-height:1.45}
+#title .best{margin-top:8px;font-weight:800;color:var(--gold);text-shadow:0 1px 2px #000}
+.credits{font-size:12px;line-height:1.45;opacity:.95;max-width:560px;margin-top:14px;text-shadow:0 1px 2px #000}
+.jam{position:fixed;left:calc(10px + var(--sal));bottom:calc(10px + var(--sab));font-size:11px;font-weight:800;letter-spacing:1px;opacity:.85;text-shadow:0 1px 2px #000}
+/* upgrades panel */
+#upg .card{max-height:86vh;overflow-y:auto;text-align:left}
+.urow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(20,33,61,.12)}
+.urow .ic{width:42px;height:42px;border-radius:12px;background:var(--ink2);color:#fff;display:grid;place-items:center;font-size:20px;flex:none}
+.urow .tx{flex:1;min-width:0}
+.urow .tx b{display:block;font-size:15px}
+.urow .tx small{display:block;font-size:12px;opacity:.75}
+.urow .lv{display:flex;gap:3px;margin-top:3px}.urow .lv i{width:14px;height:5px;border-radius:2px;background:#cfd3dc}.urow .lv i.on{background:var(--orange)}
+.buy{background:var(--green);color:#063;font-weight:900;padding:9px 12px;border-radius:12px;box-shadow:0 4px 0 #1f8a52;min-width:76px;font-size:15px}
+.buy[disabled]{background:#cfd3dc;color:#6b7280;box-shadow:0 4px 0 #9aa0ab}
+.buy.max{background:transparent;box-shadow:none;color:#6b7280}
+.xbtn{position:sticky;top:0;float:right;width:36px;height:36px;border-radius:50%;background:var(--ink);color:#fff;font-weight:900;font-size:18px}
+/* shift card */
+#shiftcard .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+#shiftcard .stats div{background:#fff;border-radius:12px;padding:8px 4px;font-size:12px;font-weight:700}
+#shiftcard .stats b{display:block;font-size:20px;font-weight:900}
+.perks{display:grid;gap:8px;margin-top:8px}
+.perk{display:flex;gap:10px;align-items:center;text-align:left;background:#fff;border:3px solid transparent;border-radius:14px;padding:10px 12px;color:var(--ink);box-shadow:0 4px 0 rgba(20,33,61,.18)}
+.perk:hover,.perk:focus{border-color:var(--orange)}
+.perk .ic{font-size:26px;width:40px;text-align:center}
+.perk b{display:block;font-size:15px}.perk small{font-size:12px;opacity:.8}
+.nextshift{font-weight:900;color:var(--orange);letter-spacing:1px;font-size:13px;margin-top:4px}
+/* end */
+#end .rank{font-size:30px;font-weight:900;color:var(--orange);margin:4px 0}
+#end .score{font-size:44px;font-weight:900;line-height:1}
+#end .kit{display:block;margin-top:12px;padding:10px;border-radius:14px;background:var(--ink);color:#fff;text-decoration:none;font-weight:800;font-size:14px;line-height:1.35}
+#end .kit span{color:var(--orange2)}
+/* loader */
+#loader{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 30%,#2b3f70,var(--ink) 70%)}
+#loader .road{position:relative;width:min(70vw,340px);height:10px;border-radius:5px;background:#0c1428;margin-top:28px;overflow:hidden;border:2px solid #2c3e66}
+#loader .road i{position:absolute;left:0;top:0;bottom:0;width:0;background:repeating-linear-gradient(90deg,var(--orange) 0 14px,var(--orange2) 14px 28px);transition:width .2s}
+#loader .lt{margin-top:10px;font-weight:800;font-size:13px;letter-spacing:2px;opacity:.85}
+#loader .pump{width:64px;height:64px;margin-top:18px;animation:pumpb 1s ease-in-out infinite alternate}
+@keyframes pumpb{to{transform:translateY(-6px) rotate(-4deg)}}
+#pauseScr .card{text-align:center}
+@media (max-width:520px){#carry{bottom:calc(132px + var(--sab));font-size:12px}#toast{top:calc(150px + var(--sat));font-size:14px}#cash b{font-size:22px}#shiftbox{min-width:132px;padding:5px 10px}#shiftbox .clock{font-size:19px}#rep .st{width:16px;height:16px}#gearbox .knob{width:64px;height:64px}#gearbox .knob b{font-size:34px}}
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+<div id="labels"></div>
+<div id="hud" class="hidden">
+  <div id="cash" class="chip"><span class="coin">$</span><b id="cashN">0</b></div>
+  <div id="earned">Day total $0</div>
+  <div id="shiftbox" class="chip"><div class="name" id="shiftName">MORNING SHIFT</div><div class="clock" id="clock">06:00</div><div class="bar"><i id="shiftBar"></i></div></div>
+  <div id="rep" class="chip" title="Reputation"></div>
+  <div id="topbtns"><button id="muteBtn" class="ibtn chip" aria-label="Sound on/off">&#9835;</button><button id="pauseBtn" class="ibtn chip" aria-label="Pause">II</button></div>
+  <button id="upgBtn" class="chip"><span class="dot"></span>UPGRADES</button>
+  <div id="gearkeys"><span class="kbd">L-Shift</span> down &nbsp;<span class="kbd">R-Shift</span> up</div>
+  <div id="gearbox" class="chip">
+    <div class="col"><button class="gbtn" id="gUp" aria-label="Shift up">&#9650;</button><button class="gbtn dn" id="gDn" aria-label="Shift down">&#9660;</button></div>
+    <div class="knob" id="knob"><b id="gearN">1</b><small>GEAR</small></div>
+  </div>
+  <div id="carry" class="chip"></div>
+  <div id="toast" class="chip"></div>
+  <div id="hint" class="chip"></div>
+  <div id="fingerHint"><div class="ring"></div><div class="finger"></div></div>
+  <div id="gearPoint">&#9660;</div>
+</div>
+
+<div id="title" class="screen hidden">
+  <div class="logo">FUEL <span>SHIFT</span></div>
+  <div class="tag">One day at a 24/7 gas station. Three shifts. One gearbox.<br>Shift up for more customers and bigger prices. Shift down before they storm off.</div>
+  <button class="big" id="startBtn">START SHIFT</button>
+  <div class="best" id="bestLine"></div>
+  <div class="how">
+    <div id="howMove"><b>Move:</b> WASD / arrows, or drag.<br><b>Work:</b> stand in a ring.</div>
+    <div id="howGear"><b>Gearbox:</b> <span class="kbd">R-Shift</span> up, <span class="kbd">L-Shift</span> down (or the &#9650;&#9660; buttons).</div>
+  </div>
+  <div class="credits">3D assets: Vuena Simulator Kits Sampler (CC0), <a href="https://vuena.itch.io/simulator-kits-sampler-free" target="_blank" rel="noopener">vuena.itch.io/simulator-kits-sampler-free</a>. The full Store, Gas Station, Apartment and Factory kits are on <a href="https://vuena.itch.io" target="_blank" rel="noopener">vuena.itch.io</a>. Sounds: Kenney (CC0). Code: MIT.</div>
+</div>
+<div class="jam hidden" id="jamTag">GitHub Game Off 2026 &middot; theme SHIFT</div>
+
+<div id="upg" class="screen dim hidden"><div class="card"><button class="xbtn" id="upgX" aria-label="Close">&times;</button><h2>Upgrades</h2><p style="font-size:13px;opacity:.75;margin-top:0">New stations are bought on the gold pads around the station.</p><div id="upgList"></div></div></div>
+
+<div id="shiftcard" class="screen dim hidden"><div class="card">
+  <div class="nextshift" id="scKicker">SHIFT CHANGE</div>
+  <h2 id="scTitle">Morning shift done</h2>
+  <div class="stats"><div>Earned<b id="scEarn">$0</b></div><div>Served<b id="scServed">0</b></div><div>Walked out<b id="scLost">0</b></div></div>
+  <p id="scText" style="font-size:14px"></p>
+  <p style="font-weight:900;margin-bottom:2px">Pick one perk for the next shift:</p>
+  <div class="perks" id="perks"></div>
+</div></div>
+
+<div id="pauseScr" class="screen dim hidden"><div class="card"><h2>Paused</h2><p>Take a breather. The customers are frozen in time.</p><button class="big" id="resumeBtn">RESUME</button></div></div>
+
+<div id="end" class="screen dim hidden"><div class="card">
+  <div class="nextshift" id="endKicker">06:00 &middot; DAY COMPLETE</div>
+  <h2 id="endTitle">You survived the day</h2>
+  <div class="score" id="endScore">$0</div>
+  <div class="rank" id="endRank">Trainee</div>
+  <p id="endLine" style="font-size:14px"></p>
+  <p id="endBest" style="font-weight:800"></p>
+  <button class="big" id="againBtn">WORK ANOTHER DAY</button>
+  <a class="kit" href="https://vuena.itch.io/simulator-kits-sampler-free" target="_blank" rel="noopener">Every prop in this game comes from the free <span>Simulator Kits Sampler (CC0)</span>. Grab the 24 assets free, or the full Store, Gas Station, Apartment and Factory kits on vuena.itch.io.</a>
+  <p style="font-size:11px;opacity:.7;margin-top:10px">3D assets: Vuena Simulator Kits Sampler (CC0) &middot; Sounds: Kenney (CC0) &middot; Code: MIT, written with AI assistance (Claude) &middot; GitHub Game Off 2026</p>
+</div></div>
+
+<div id="loader">
+  <svg class="pump" viewBox="0 0 64 64" aria-hidden="true"><rect x="12" y="8" width="28" height="48" rx="5" fill="#ff7a1a"/><rect x="17" y="14" width="18" height="12" rx="2" fill="#14213d"/><rect x="20" y="17" width="12" height="3" fill="#18c6b3"/><rect x="8" y="54" width="36" height="6" rx="2" fill="#fff4e0"/><path d="M40 20 h6 a4 4 0 0 1 4 4 v20 a3 3 0 0 0 6 0 v-14" stroke="#fff4e0" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>
+  <div class="logo" style="font-size:clamp(40px,11vw,72px);margin-top:10px">FUEL <span>SHIFT</span></div>
+  <div class="road"><i id="loadBar"></i></div>
+  <div class="lt" id="loadTxt">OPENING THE STATION...</div>
+</div>
+<div id="stick" class="off"><i></i></div>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

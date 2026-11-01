@@ -1,0 +1,12 @@
+CC0 1.0 Universal - public domain dedication
+
+The 24 models and their textures in this sampler (6 from each of the Store, Gas Station, Apartment Interior and Factory Simulator Kits) are our own work and are dedicated to the public domain under CC0 1.0 Universal. The only third-party files are the oak and walnut wood textures in the Apartment folder (Poly Haven oak_veneer_01 by Jenelle van Heerden, https://polyhaven.com/a/oak_veneer_01), which are CC0 as well.
+You can copy, modify, distribute and use them for anything, including commercial use, without asking permission and without attribution.
+
+Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Summary: https://creativecommons.org/publicdomain/zero/1.0/
+
+The four full kits (Store Simulator Kit, Gas Station Simulator Kit, Modular Apartment Interior Kit, Factory Simulator Kit) are separate products with their own licence. This CC0 dedication covers only the files in this sampler.
+
+Source: Vuena Simulator Kits Sampler (CC0), https://vuena.itch.io/simulator-kits-sampler-free
+The 24 GLB files here are copied unchanged from that free sampler. The full paid kits are NOT in this repository; they are on https://vuena.itch.io

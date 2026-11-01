@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Asset gallery</title>
+<style>html,body{margin:0;background:#20242c;overflow:hidden}</style>
+<script type="importmap">{"imports":{"three":"/public/vendor/three/three.module.min.js","three/addons/":"/public/vendor/addons/"}}</script>
+</head><body>
+<script type="module">
+// Dev tool: renders all 24 sampler GLBs in a labelled grid so we can see their real look and scale.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const names = ['ap_armchair','ap_coffee_table','ap_mug','ap_pillow_square','ap_plant_small','ap_table_lamp','fk_barrel_steel','fk_box_closed','fk_item_box','fk_pallet_wood','fk_sign_forklift','fk_traffic_barrier_2m','gs_bollard_steel','gs_cone_traffic','gs_jerry_can','gs_prod_oil_5l_a','gs_pump_modern','gs_tire','sk_carton_s','sk_pos_till','sk_price_tag_shelf','sk_prod_can_soda_a','sk_prod_cereal_l_a','sk_shelf_wall_120'];
+const W = 1600, H = 1000, cols = 6, rows = 4, cw = W / cols, ch = H / rows;
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H); r.setScissorTest(true);
+r.toneMapping = THREE.ACESFilmicToneMapping; document.body.appendChild(r.domElement);
+const L = new GLTFLoader(); const info = [];
+const objs = await Promise.all(names.map((n) => L.loadAsync('/public/models/' + n + '.glb').then((g) => g.scene)));
+const lab = document.createElement('canvas'); lab.width = W; lab.height = H; lab.style.cssText = 'position:absolute;left:0;top:0';
+document.body.appendChild(lab); const c2 = lab.getContext('2d'); c2.font = '14px monospace'; c2.fillStyle = '#fff';
+objs.forEach((o, i) => {
+  const sc = new THREE.Scene(); sc.background = new THREE.Color(0x3a404c);
+  sc.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6)); const d = new THREE.DirectionalLight(0xffffff, 2.2); d.position.set(3, 5, 4); sc.add(d);
+  sc.add(o); const b = new THREE.Box3().setFromObject(o), s = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  const R = Math.max(s.x, s.y, s.z); const cam = new THREE.PerspectiveCamera(35, cw / ch, 0.01, 100);
+  cam.position.set(c.x + R * 1.3, c.y + R * 0.9, c.z + R * 1.9); cam.lookAt(c);
+  const x = (i % cols) * cw, y = Math.floor(i / cols) * ch;
+  r.setViewport(x, H - y - ch, cw, ch); r.setScissor(x, H - y - ch, cw, ch); r.render(sc, cam);
+  c2.fillText(names[i], x + 6, y + 18); c2.fillText(`${s.x.toFixed(2)}x${s.y.toFixed(2)}x${s.z.toFixed(2)} min(${b.min.x.toFixed(2)},${b.min.y.toFixed(2)},${b.min.z.toFixed(2)})`, x + 6, y + 36);
+  info.push({ n: names[i], size: s.toArray().map((v) => +v.toFixed(3)), min: b.min.toArray().map((v) => +v.toFixed(3)), children: o.children.map((k) => k.name) });
+});
+window.__info = info; window.__done = true;
+</script></body></html>
