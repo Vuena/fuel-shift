@@ -27,7 +27,7 @@ try {
   await stage({ shift: 0, t: 95, gear: 3, cash: 214, earned: 640, unlock: ['pump1', 'pump2', 'cereal', 'jerry'], px: 4.4, pz: 4.4, cars: 3, walk: 0, stock: 0.6 });
   await shot('screenshot_1.png', 9);
   // 2 evening shop: queue at the till, coffee corner, shelves
-  await stage({ shift: 1, t: 70, gear: 3, cash: 486, earned: 1720, unlock: ['pump1', 'pump2', 'cereal', 'oil', 'coffee', 'jerry'], staff: ['stocker'], px: 1.3, pz: -6.45, cars: 1, walk: 6, stock: 0.7 });
+  await stage({ shift: 1, t: 70, gear: 3, cash: 486, earned: 1720, unlock: ['pump1', 'pump2', 'cereal', 'oil', 'coffee', 'jerry'], staff: ['stocker'], px: -0.15, pz: -5.6, cars: 1, walk: 6, stock: 0.7 });
   await shot('screenshot_2.png', 10);
   // 3 night shift: lit shop, trucks and tyres
   await stage({ shift: 2, t: 60, gear: 4, cash: 905, earned: 3480, unlock: ['pump1', 'pump2', 'pump3', 'cereal', 'oil', 'coffee', 'jerry', 'tyre'], staff: ['stocker', 'cashier', 'attendant'], px: 9.2, pz: 3.6, cars: 4, walk: 3, stock: 0.75 });

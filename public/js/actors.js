@@ -38,7 +38,7 @@ export function makePerson(models, kind = 'customer', { night = false } = {}) {
   g.add(m);
   const blob = new THREE.Mesh(blobGeo, blobMat); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.012; g.add(blob);
   if (kind !== 'customer') { const r = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: kind === 'player' ? 0xff7a1a : 0x18c6b3, transparent: true, opacity: 0.9, depthWrite: false })); r.rotation.x = -Math.PI / 2; r.position.y = 0.02; g.add(r); }
-  const hold = new THREE.Group(); hold.position.set(0, 0.74, 0.4); g.add(hold); // carried items sit here (in front, on the arms)
+  const hold = new THREE.Group(); hold.position.set(0, 1.0, 0.7); g.add(hold); // carried items sit here (in front, on the arms)
   const mixer = new THREE.AnimationMixer(m); const act = {};
   for (const c of ['idle', 'walk', 'run']) { const clip = THREE.AnimationClip.findByName(src.clips, c); if (clip) act[c] = mixer.clipAction(clip); }
   let cur = act.idle; cur.time = Math.random() * 2; cur.play();

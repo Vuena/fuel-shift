@@ -6,12 +6,16 @@ import { mat } from './actors.js';
 export const PUMP_X = [0, 4.5, 9, 13.5];
 export const PUMP_Z = 2.4;
 export const SHOP = { x0: -3, x1: 13, z0: -12, z1: -3, door: [5, 7], side: [-10, -8.6] };
-export const SHELF_X = { soda: 3.2, cereal: 5.4, oil: 7.6 };
+export const SHELF_X = { soda: 2.58, cereal: 5.0, oil: 7.42 };           // centre of each 2-unit shelf section on the back wall
+export const COUNTER = { x: 1.0, z: -5.6 };                               // counter runs front-to-back (x 0.6..1.4, z -6.8..-4.4)
+export const ISLANDS = [6.2, 9.6], ISLAND_Z = -8.4;                       // gondola islands: 2 units long (north-south), back-to-back
+// rings sit flush against the object they belong to (ring edge tucks under the shelf / counter / pallet)
 export const SPOTS = {
-  till: { x: 1.3, z: -6.45 }, queue0: { x: 1.3, z: -4.05 }, pallet: { x: 14.9, z: -8.2 }, jerry: { x: -3.4, z: 3.9 }, tyre: { x: 17.6, z: 3.9 },
-  coffee: { x: -0.9, z: -7.15 }, doorOut: { x: 6, z: -2.2 }, doorIn: { x: 6, z: -4.2 },
+  till: { x: -0.15, z: -5.6 }, pallet: { x: 15.2, z: -8.5 }, jerry: { x: -3.4, z: 3.5 }, tyre: { x: 17.6, z: 3.55 },
+  coffee: { x: -0.9, z: -7.4 }, doorOut: { x: 6, z: -2.2 }, doorIn: { x: 6, z: -4.2 },
 };
-export const shelfSpot = (id) => ({ x: SHELF_X[id], z: -10.75 });
+export const QUEUE = [[2.05, -5.6], [2.05, -6.5], [2.05, -7.4], [3.0, -7.4], [3.95, -7.4], [3.95, -6.5], [3.95, -5.6], [3.95, -4.7]].map(([x, z]) => ({ x, z }));
+export const shelfSpot = (id) => ({ x: SHELF_X[id], z: SHOP.z0 + 0.425 + 0.5 });
 export const pumpSpot = (i) => ({ x: PUMP_X[i], z: 3.95 });
 export const baySpot = (i) => ({ x: PUMP_X[i] + 2.15, z: 3.05 });
 
@@ -101,53 +105,108 @@ export function buildWorld(scene, models) {
   for (const x of SHOP.door) box(0.1, 2.4, 0.12, frameM, x, 1.2, SHOP.z1 + T / 2);
   // door mat
   box(2, 0.02, 1.2, mat(0x1d2f55, { r: 1 }), 6, 0.02, -3.7, { cast: false });
-  // store sign over the back wall (inside, readable from the camera)
-  const signT = canvasTex(1024, 160, (g, w, h) => { g.fillStyle = '#1d2f55'; g.fillRect(0, 0, w, h); g.fillStyle = '#ff7a1a'; g.fillRect(0, h - 16, w, 16);
-    g.font = '900 96px Segoe UI, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText('FUEL SHIFT MART', w / 2, h / 2 - 6); g.fillStyle = '#ffb347'; g.font = '900 34px Segoe UI, Arial'; g.fillText('OPEN 24/7', w * 0.88, h / 2 + 34); });
-  const signM = new THREE.MeshStandardMaterial({ map: signT, emissive: 0xffffff, emissiveMap: signT, emissiveIntensity: 0.15 }); nightMats.push({ m: signM, on: 0.9, off: 0.15 });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 0.72), signM); sign.position.set(5, 2.46, SHOP.z0 + 0.02); scene.add(sign);
-
-  // ---------- counter + till ----------
-  const counterTop = mat(0x1d2f55, { r: 0.4 }), counterFront = mat(0xff7a1a, { r: 0.6 });
-  box(3.0, 0.92, 0.8, counterFront, 1.3, 0.46, -5.2, { coll: true }); box(3.1, 0.06, 0.9, counterTop, 1.3, 0.95, -5.2);
-  const till = place('sk_pos_till', 0.6, 0.98, -5.25, Math.PI, 'on');
-  place('ap_mug', 1.3, 0.98, -5.0, 0.6, 'on');
-  place('ap_plant_small', 2.35, 0.98, -5.3, 0.4, 'on');
-
-  // ---------- shelves (one per product) ----------
-  const BOARDS = [0.291, 0.691, 1.091, 1.491];
-  const prodSpec = { soda: { m: 'sk_prod_can_soda_a', w: 0.086, rows: 2 }, cereal: { m: 'sk_prod_cereal_l_a', w: 0.215, rows: 1 }, oil: { m: 'gs_prod_oil_5l_a', w: 0.225, rows: 1 } };
-  const makeShelf = (id) => {
-    const sx = SHELF_X[id], sz = SHOP.z0, g = new THREE.Group(); scene.add(g);
-    const sh = place('sk_shelf_wall_120', sx, 0, sz, 0, 'floor', g);
-    const spec = prodSpec[id]; const per = Math.floor(1.08 / spec.w); const slots = [];
-    for (let r = 0; r < spec.rows; r++) for (let b = BOARDS.length - 1; b >= 0; b--) for (let k = 0; k < per; k++) slots.push({ x: sx - 0.54 + spec.w * (k + 0.5), y: BOARDS[b], z: sz + 0.29 - r * 0.12 });
-    for (let b = 0; b < BOARDS.length; b++) place('sk_price_tag_shelf', sx - 0.42 + (b % 2) * 0.7, BOARDS[b] - 0.02, sz + 0.4022, 0, 'hang', g); // on the board's front lip (z 0.4022, y -0.021..+0.03)
-    colliders.push({ x0: sx - 0.62, x1: sx + 0.62, z0: sz, z1: sz + 0.45, unlock: id === 'soda' ? undefined : id });
-    return { id, group: g, slots, model: spec.m, cap: Math.min(slots.length, id === 'soda' ? 24 : 16) };
+  // ---------- signage: store sign above the backstock, section boards on top of each shelf section ----------
+  const signBoard = (text, sub, w, h, bg, fg, emis) => {
+    const t = canvasTex(Math.round(256 * w), Math.round(256 * h), (g, cw, ch) => { g.fillStyle = bg; g.fillRect(0, 0, cw, ch); g.fillStyle = '#ff7a1a'; g.fillRect(0, ch - ch * 0.1, cw, ch * 0.1);
+      g.font = `900 ${Math.round(ch * (sub ? 0.5 : 0.62))}px Segoe UI, Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = fg; g.fillText(text, cw / 2, ch * (sub ? 0.38 : 0.47));
+      if (sub) { g.fillStyle = '#ffb347'; g.font = `800 ${Math.round(ch * 0.24)}px Segoe UI, Arial`; g.fillText(sub, cw / 2, ch * 0.77); } });
+    const m = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.12 }); nightMats.push({ m, on: emis, off: 0.12 });
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, h), m);
   };
-  for (const id of ['soda', 'cereal', 'oil']) W.stations[id] = makeShelf(id);
-  place('ap_plant_small', SHELF_X.soda - 0.32, 1.96, SHOP.z0 + 0.2, 0.7, 'on', W.stations.soda.group);
+  const sign = signBoard('FUEL SHIFT MART', 'OPEN 24/7', 3.4, 0.7, '#1d2f55', '#fff', 0.9); sign.position.set(10.9, 2.3, SHOP.z0 + 0.02); scene.add(sign);
 
-  // ---------- coffee corner (unlockable): armchair, table with mugs, lamp, plant, cushion ----------
+  // ---------- counter + till: the counter runs front-to-back so neither side is hidden from the top-down camera ----------
+  // cashier stands on the west side (till ring), customers queue on the east side
+  const counterTop = mat(0x1d2f55, { r: 0.4 }), counterFront = mat(0xff7a1a, { r: 0.6 });
+  box(0.8, 0.92, 2.4, counterFront, COUNTER.x, 0.46, COUNTER.z, { coll: true }); box(0.9, 0.06, 2.5, counterTop, COUNTER.x, 0.95, COUNTER.z);
+  place('sk_pos_till', COUNTER.x - 0.05, 0.98, SPOTS.till.z, -Math.PI / 2, 'on');
+  place('ap_mug', COUNTER.x + 0.1, 0.98, COUNTER.z + 0.85, 0.6, 'on');
+  place('ap_plant_small', COUNTER.x, 0.98, COUNTER.z - 0.9, 0.4, 'on');
+  place('sk_carton_s', COUNTER.x - 0.05, 0.98, COUNTER.z + 0.45, 0.2, 'on');
+
+  // ---------- floor markings (code decals): queue tape, entrance arrows, lounge rug, hazard frame at the backstock ----------
+  const decal = (w, d, x, z, draw, rot = 0) => { const t = canvasTex(Math.round(128 * w), Math.round(128 * d), draw); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.8, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.rotation.z = rot; m.position.set(x, 0.014, z); m.receiveShadow = true; m.renderOrder = 1; scene.add(m); return m; };
+  decal(0.9, 3.6, QUEUE[0].x + 0.05, -6.6, (g, w, h) => { g.strokeStyle = '#ffcc33'; g.lineWidth = 10; g.setLineDash([26, 16]); g.strokeRect(8, 8, w - 16, h - 16); g.setLineDash([]);
+    g.fillStyle = '#ffcc33'; g.font = '900 40px Segoe UI, Arial'; g.textAlign = 'center'; g.save(); g.translate(w / 2, h * 0.55); g.rotate(-Math.PI / 2); g.fillText('QUEUE HERE', 0, 14); g.restore(); });
+  decal(3.0, 2.6, -1.45, -9.65, (g, w, h) => { g.fillStyle = '#8c2f39'; g.fillRect(0, 0, w, h); g.strokeStyle = '#e9c46a'; g.lineWidth = 14; g.strokeRect(20, 20, w - 40, h - 40);
+    g.strokeStyle = '#f4e3c1'; g.lineWidth = 5; g.strokeRect(44, 44, w - 88, h - 88); for (let i = 0; i < 9; i++) { g.fillStyle = i % 2 ? '#e9c46a' : '#f4e3c1'; g.beginPath(); g.arc(70 + i * (w - 140) / 8, h / 2, 10, 0, 7); g.fill(); } });
+  decal(2.6, 2.0, 11.75, -11.0, (g, w, h) => { const s = 22; g.save(); g.beginPath(); g.rect(0, 0, w, h); g.rect(s, s, w - 2 * s, h - 2 * s); g.clip('evenodd'); for (let i = -h; i < w + h; i += 2 * s) { g.fillStyle = '#ffcc00'; g.beginPath(); g.moveTo(i, 0); g.lineTo(i + s, 0); g.lineTo(i + s - h, h); g.lineTo(i - h, h); g.fill(); } g.restore(); });
+  decal(1.0, 1.4, 6, -4.9, (g, w, h) => { g.fillStyle = 'rgba(29,47,85,.55)'; for (const y of [0.15, 0.55]) { g.beginPath(); g.moveTo(w * 0.5, h * y); g.lineTo(w * 0.85, h * (y + 0.25)); g.lineTo(w * 0.62, h * (y + 0.25)); g.lineTo(w * 0.62, h * (y + 0.4)); g.lineTo(w * 0.38, h * (y + 0.4)); g.lineTo(w * 0.38, h * (y + 0.25)); g.lineTo(w * 0.15, h * (y + 0.25)); g.fill(); } });
+
+  // ---------- product sections on the back wall: two shelf units each, products spread over both ----------
+  const BOARDS = [0.291, 0.691, 1.091, 1.491];
+  const prodSpec = { soda: { m: 'sk_prod_can_soda_a', w: 0.086, cap: 32, title: 'SODA & DRINKS', col: '#1f7a8c' }, cereal: { m: 'sk_prod_cereal_l_a', w: 0.215, cap: 24, title: 'BREAKFAST', col: '#2a9d55' }, oil: { m: 'gs_prod_oil_5l_a', w: 0.225, cap: 24, title: 'MOTOR OIL', col: '#3a3f4b' } };
+  const makeSection = (id) => {
+    const cx = SHELF_X[id], sz = SHOP.z0, g = new THREE.Group(); scene.add(g); const spec = prodSpec[id], per = Math.floor(1.08 / spec.w);
+    const units = [cx - 0.605, cx + 0.605]; const groups = []; // slots grouped per (board, unit), each sorted from the unit centre outwards
+    for (const ux of units) {
+      place('sk_shelf_wall_120', ux, 0, sz, 0, 'floor', g);
+      for (let b = 0; b < BOARDS.length; b++) place('sk_price_tag_shelf', ux - 0.38 + (b % 2) * 0.6, BOARDS[b] - 0.02, sz + 0.4022, 0, 'hang', g);
+      for (let b = BOARDS.length - 1; b >= 0; b--) { const row = []; for (let k = 0; k < per; k++) row.push({ x: ux - 0.54 + spec.w * (k + 0.5), y: BOARDS[b], z: sz + 0.29 }); row.sort((p, q) => Math.abs(p.x - ux) - Math.abs(q.x - ux)); groups.push(row); }
+    }
+    const slots = []; for (let r = 0; r < per; r++) for (const row of groups) if (row[r]) slots.push(row[r]); // round-robin: every board fills evenly
+    const label = signBoard(spec.title, null, 2.2, 0.34, spec.col, '#fff', 0.7); label.position.set(cx, 1.96 + 0.17, sz + 0.03); g.add(label);
+    colliders.push({ x0: cx - 1.22, x1: cx + 1.22, z0: sz, z1: sz + 0.45 });
+    return { id, group: g, slots, model: spec.m, cap: Math.min(slots.length, spec.cap), ordered: true };
+  };
+  for (const id of ['soda', 'cereal', 'oil']) W.stations[id] = makeSection(id);
+  place('ap_plant_small', SHELF_X.soda - 0.95, 1.96, SHOP.z0 + 0.2, 0.7, 'on', W.stations.soda.group);
+
+  // ---------- gondola islands: back-to-back shelf units, always fully stocked with mixed merchandise (decor) ----------
+  const decorSlots = { sk_prod_can_soda_a: [], sk_prod_cereal_l_a: [], gs_prod_oil_5l_a: [], fk_item_box: [], sk_carton_s: [] };
+  // islands run north-south (aisles parallel to the camera's view), so they hide almost nothing behind them
+  const rot = (lx, lz, r) => ({ x: lx * Math.cos(r) + lz * Math.sin(r), z: -lx * Math.sin(r) + lz * Math.cos(r) }); // three.js rotation about +y
+  const WD = { sk_prod_can_soda_a: 0.09, sk_prod_cereal_l_a: 0.215, gs_prod_oil_5l_a: 0.23, fk_item_box: 0.33, sk_carton_s: 0.33 };
+  const fillUnit = (ux, uz, r, theme) => {
+    for (let b = 0; b < BOARDS.length; b++) {
+      const kind = theme[b % theme.length], wdt = WD[kind], n = Math.floor(1.06 / wdt);
+      for (let k = 0; k < n; k++) { const p = rot(-0.53 + wdt * (k + 0.5), 0.27, r); decorSlots[kind].push({ x: ux + p.x, y: BOARDS[b], z: uz + p.z, ry: r }); }
+    }
+  };
+  for (const [ix, themeA, themeB] of [[ISLANDS[0], ['sk_prod_cereal_l_a', 'sk_prod_can_soda_a', 'fk_item_box', 'sk_prod_can_soda_a'], ['sk_prod_can_soda_a', 'sk_prod_cereal_l_a', 'sk_prod_can_soda_a', 'sk_carton_s']],
+    [ISLANDS[1], ['gs_prod_oil_5l_a', 'fk_item_box', 'gs_prod_oil_5l_a', 'sk_carton_s'], ['fk_item_box', 'gs_prod_oil_5l_a', 'sk_prod_cereal_l_a', 'gs_prod_oil_5l_a']]]) {
+    for (const uz of [ISLAND_Z - 0.605, ISLAND_Z + 0.605]) {
+      for (const [r, theme] of [[Math.PI / 2, themeA], [-Math.PI / 2, themeB]]) { // backs touch at x = ix; fronts face east / west
+        place('sk_shelf_wall_120', ix, 0, uz, r, 'floor'); fillUnit(ix, uz, r, theme);
+        for (let b = 0; b < BOARDS.length; b += 2) { const p = rot(b ? 0.3 : -0.3, 0.4022, r); place('sk_price_tag_shelf', ix + p.x, BOARDS[b] - 0.02, uz + p.z, r, 'hang'); }
+      }
+    }
+    // end cap facing the camera (south): the island's product face that the top-down view actually sees
+    const ez = ISLAND_Z + 1.213; place('sk_shelf_wall_120', ix, 0, ez, 0, 'floor'); fillUnit(ix, ez, 0, [themeA[1], themeA[0], themeB[2], themeA[3]]);
+    for (let b = 0; b < BOARDS.length; b++) place('sk_price_tag_shelf', ix + (b % 2 ? 0.32 : -0.32), BOARDS[b] - 0.02, ez + 0.4022, 0, 'hang');
+    colliders.push({ x0: ix - 0.45, x1: ix + 0.45, z0: ISLAND_Z - 1.22, z1: ISLAND_Z + 1.22 }, { x0: ix - 0.62, x1: ix + 0.62, z0: ez, z1: ez + 0.45 });
+  }
+  { const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
+    for (const [kind, list] of Object.entries(decorSlots)) { const inst = models.instancer(kind, list.length, false); list.forEach((s, i) => { q.setFromEuler(e.set(0, s.ry + (Math.random() - 0.5) * 0.1, 0)); m4.compose(new THREE.Vector3(s.x, s.y, s.z), q, one); inst.set(i, m4); }); inst.count = list.length; scene.add(inst.group); W.decorCount = (W.decorCount || 0) + list.length; } }
+
+  // ---------- coffee corner (unlockable mugs; the furniture is always there): rug, armchair, table, lamp, cushion ----------
   const lounge = new THREE.Group(); scene.add(lounge);
   place('ap_coffee_table', -0.9, 0, -8.3, 0, 'floor', lounge);
   place('ap_armchair', -2.1, 0, -10.6, Math.PI / 4, 'floor', lounge);
   place('ap_pillow_square', -2.18, 0.523, -10.68, Math.PI / 4, 'on', lounge).rotation.x = 0; // cushion against the backrest
   place('ap_table_lamp', -0.56, 0.42, -8.3, 0, 'on', lounge);
-  // backstock corner inside the side door (fills the shop's east half)
-  place('fk_pallet_wood', 11.7, 0, -11.35, 0, 'floor');
-  for (const [dx, dz, r] of [[-0.3, -0.2, 0], [0.3, -0.2, 0], [-0.3, 0.2, 0]]) place('fk_box_closed', 11.7 + dx, 0.144, -11.35 + dz, r, 'on');
-  place('sk_carton_s', 11.7 + 0.28, 0.144, -11.35 + 0.22, 0.25, 'on');
-  place('fk_item_box', 11.7 - 0.3, 0.545, -11.35 - 0.2, 0.15, 'on');
-  place('sk_carton_s', 11.7 + 0.3, 0.545, -11.35 - 0.18, -0.2, 'on');
-  place('fk_box_closed', 10.4, 0, -11.6, Math.PI / 2, 'floor');
-  place('sk_carton_s', 10.4, 0.401, -11.6, 0.4, 'on');
-  colliders.push({ x0: 10.15, x1: 12.35, z0: -11.95, z1: -10.9 });
+  place('ap_plant_small', -0.56, 0.12, -8.35, 1.1, 'on', lounge); // on the coffee table's lower shelf
   const coffeeSlots = []; for (let r = 0; r < 2; r++) for (let k = 0; k < 4; k++) coffeeSlots.push({ x: -1.35 + k * 0.16, y: 0.42, z: -8.42 + r * 0.22 });
   W.stations.coffee = { id: 'coffee', group: lounge, slots: coffeeSlots, model: 'ap_mug', cap: 8 };
-  colliders.push({ x0: -1.45, x1: -0.35, z0: -8.6, z1: -8.0, unlock: 'coffee' }, { x0: -2.6, x1: -1.6, z0: -11.1, z1: -10.1, unlock: 'coffee' });
+  colliders.push({ x0: -1.45, x1: -0.35, z0: -8.6, z1: -8.0 }, { x0: -2.6, x1: -1.6, z0: -11.1, z1: -10.1 });
   const lampLight = new THREE.PointLight(0xffc27a, 0, 5, 1.6); lampLight.position.set(-0.56, 1.1, -8.3); lounge.add(lampLight); lamps.push({ l: lampLight, on: 2.2 });
+
+  // ---------- backstock inside the side door: two pallets of boxes inside a hazard frame, forklift sign ----------
+  place('fk_pallet_wood', 11.75, 0, -11.4, 0, 'floor');
+  for (const [dx, dz] of [[-0.3, -0.2], [0.3, -0.2], [-0.3, 0.2], [0.3, 0.2]]) place('fk_box_closed', 11.75 + dx, 0.144, -11.4 + dz, 0, 'on');
+  place('fk_box_closed', 11.75 - 0.3, 0.545, -11.4 - 0.2, 0, 'on'); place('fk_item_box', 11.75 + 0.3, 0.545, -11.4 - 0.2, 0.15, 'on');
+  place('sk_carton_s', 11.75 - 0.28, 0.545, -11.4 + 0.2, -0.2, 'on');
+  place('fk_pallet_wood', 11.75, 0, -10.45, 0, 'floor');
+  for (const [dx, dz] of [[-0.3, -0.2], [0.3, -0.2], [-0.3, 0.2]]) place('fk_item_box', 11.75 + dx, 0.144, -10.45 + dz, dx * 0.5, 'on');
+  place('sk_carton_s', 11.75 + 0.3, 0.144, -10.45 + 0.2, 0.3, 'on');
+  colliders.push({ x0: 11.1, x1: 12.4, z0: -11.85, z1: -10.0 });
+  place('fk_sign_forklift', SHOP.x1 - 0.004, 1.3, -11.6, -Math.PI / 2, 'hang'); // inside face of the east wall
+  // a second stock bay by the front-east corner: boxes waiting to be shelved
+  place('fk_pallet_wood', 12.25, 0, -4.2, Math.PI / 2, 'floor');
+  for (const [dx, dz] of [[-0.2, -0.3], [0.2, -0.3], [-0.2, 0.3], [0.2, 0.3]]) place('fk_box_closed', 12.25 + dx, 0.144, -4.2 + dz, Math.PI / 2, 'on');
+  place('sk_carton_s', 12.25, 0.545, -4.2 - 0.3, 0.2, 'on'); place('sk_carton_s', 12.25 + 0.05, 0.545, -4.2 + 0.25, -0.3, 'on');
+  colliders.push({ x0: 11.8, x1: 12.7, z0: -4.8, z1: -3.6 });
 
   // ---------- stock pallet (outside the side door) ----------
   const stock = new THREE.Group(); scene.add(stock);

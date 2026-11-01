@@ -61,6 +61,9 @@ and they use our headless-Chrome helper from a sibling repo (`popyca-games/scrip
   console error.
 - `gate.mjs` is a layout gate for the placed props (FLOAT / OVERLAP / WALL checks with ray casts, a three.js port of our
   Blender layout gate), plus close-up review shots.
+- `viewcheck.mjs` puts the player on every work ring with the real camera and fails if the ring or the player is off-screen, under
+  the HUD or hidden behind scenery; it also shoots the carried stacks (player and staff). `input.mjs` tests real keyboard,
+  mouse and touch input. `posecheck.mjs` / `closeup.mjs` are close-up reviews of the animated characters.
 - `perf.mjs` measures FPS under CPU throttling. `media.mjs` makes the store screenshots and cover. `build.mjs` makes the itch.io zip.
 
 ## Credits

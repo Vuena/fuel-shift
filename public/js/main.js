@@ -3,7 +3,7 @@
 // Kits Sampler (CC0). Written with AI assistance (Claude).
 import * as THREE from 'three';
 import { Models } from './models.js';
-import { buildWorld, PUMP_X, SHELF_X, SPOTS, shelfSpot, pumpSpot, baySpot, lyingTyre } from './world.js';
+import { buildWorld, PUMP_X, SHELF_X, SPOTS, QUEUE, shelfSpot, pumpSpot, baySpot, lyingTyre } from './world.js';
 import { makePerson, makeCar } from './actors.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
@@ -99,7 +99,7 @@ async function boot() {
   for (const id of ['soda', 'cereal', 'oil', 'coffee']) {
     const st = stations[id]; st.inst = models.instancer(st.model, st.slots.length); scene.add(st.inst.group);
     const order = st.slots.map((s, i) => i);
-    if (id !== 'coffee') { const cx = SHELF_X[id]; order.sort((a, b) => (st.slots[a].z < st.slots[b].z) - (st.slots[b].z < st.slots[a].z) || Math.abs(st.slots[a].x - cx) - Math.abs(st.slots[b].x - cx) || st.slots[b].y - st.slots[a].y); }
+    if (id !== 'coffee' && !st.ordered) { const cx = SHELF_X[id]; order.sort((a, b) => (st.slots[a].z < st.slots[b].z) - (st.slots[b].z < st.slots[a].z) || Math.abs(st.slots[a].x - cx) - Math.abs(st.slots[b].x - cx) || st.slots[b].y - st.slots[a].y); }
     st.order = order.slice(0, st.cap); const m = new THREE.Matrix4(), qq = new THREE.Quaternion();
     st.order.forEach((si, k) => { const s = st.slots[si]; qq.setFromEuler(new THREE.Euler(0, (Math.random() - 0.5) * 0.12, 0)); m.compose(new THREE.Vector3(s.x, s.y, s.z), qq, new THREE.Vector3(1, 1, 1)); st.inst.set(k, m); });
     st.stock = id === 'soda' ? 5 : 0; st.inst.count = st.stock; st.perCarton = Math.ceil(st.cap / 4);
@@ -199,7 +199,7 @@ function buildZones() {
 const zoneActive = (z) => !z.need || G.unlocked.has(z.need);
 function applyUnlocks() {
   W.pumps.forEach((p) => { p.group.visible = G.unlocked.has('pump' + p.i); });
-  for (const id of ['cereal', 'oil', 'coffee']) stations[id].group.visible = stations[id].inst.group.visible = G.unlocked.has(id);
+  for (const id of ['cereal', 'oil', 'coffee']) { stations[id].group.visible = true; stations[id].inst.group.visible = G.unlocked.has(id); } // the furniture is always there; the pad sells the stock
   W.unlockables.jerry.visible = G.unlocked.has('jerry'); W.unlockables.tyre.visible = G.unlocked.has('tyre');
   for (const z of zones) z.g.visible = zoneActive(z);
   for (const p of pads) p.g.visible = padVisible(p);
@@ -229,16 +229,21 @@ function angry(where, what) {
 }
 
 // ---------------------------------------------------------------- carrying
-const CARRY_H = { carton: 0.17, jerry: 0.47, tyre: 0.206 };
-function setCarry(type, n) {
-  const u = player.userData; u.carryType = n ? type : null;
-  while (u.carryObjs.length > n) u.hold.remove(u.carryObjs.pop());
-  while (u.carryObjs.length < n) {
-    const k = u.carryObjs.length; let o;
-    if (type === 'tyre') { o = lyingTyre(models.clone('gs_tire'), 0, k * 0.206, 0, k); }
-    else { o = models.clone(type === 'jerry' ? 'gs_jerry_can' : 'sk_carton_s'); o.position.y = k * CARRY_H[type]; o.rotation.y = (Math.random() - 0.5) * 0.25; if (type === 'jerry') o.rotation.y += Math.PI / 2; }
-    u.hold.add(o); u.carryObjs.push(o);
+// carried stack: shown 2x (cartons) / 1.4x (jerry cans, two per layer) / 1.25x (tyres) in front of the character, so it reads from the
+// top-down camera even behind the big blocky heads. Shared by the player and the staff.
+const CARRY = { carton: { m: 'sk_carton_s', s: 2.0, h: 0.17, per: 1 }, jerry: { m: 'gs_jerry_can', s: 1.4, h: 0.472, per: 2 }, tyre: { m: 'gs_tire', s: 1.25, h: 0.206, per: 1 } };
+function buildCarry(hold, objs, type, n) {
+  if (objs.type !== type) { while (objs.length) hold.remove(objs.pop()); objs.type = type; } // a different item: rebuild the stack
+  while (objs.length > n) hold.remove(objs.pop());
+  while (objs.length < n) {
+    const k = objs.length, c = CARRY[type], layer = Math.floor(k / c.per), y = layer * c.h * c.s; let o;
+    if (type === 'tyre') { o = lyingTyre(models.clone('gs_tire'), 0, y, 0, k); o.scale.setScalar(c.s); }
+    else { o = models.clone(c.m); o.scale.setScalar(c.s); o.position.set(c.per > 1 ? (k % 2 ? 0.24 : -0.24) : 0, y, 0); o.rotation.y = (Math.random() - 0.5) * 0.2; }
+    hold.add(o); objs.push(o);
   }
+}
+function setCarry(type, n) {
+  const u = player.userData; u.carryType = n ? type : null; buildCarry(u.hold, u.carryObjs, type, n);
   u.carry.length = n; for (let i = 0; i < n; i++) u.carry[i] = type;
   const el = $('carry'); el.style.display = n ? 'block' : 'none'; el.textContent = n ? `Carrying ${n} ${type === 'carton' ? 'carton' : type === 'jerry' ? 'jerry can' : 'tyre'}${n > 1 ? 's' : ''} (max ${type === 'tyre' ? Math.max(1, Math.floor(carryCap() / 2)) : carryCap()})` : '';
 }
@@ -443,7 +448,7 @@ function checkout(dt, mul, z) {
   }
   return true;
 }
-function queueSpot(i) { const pts = [[1.3, -4.05], [2.4, -4.05], [3.5, -4.05], [4.4, -4.6], [4.4, -5.6], [4.4, -6.6], [4.4, -7.6], [4.4, -8.6]]; const p = pts[Math.min(i, pts.length - 1)]; return { x: p[0], z: p[1] }; }
+function queueSpot(i) { return QUEUE[Math.min(i, QUEUE.length - 1)]; }
 function reQueue() { const q = ENT.people.filter((p) => p.state === 'queue').sort((a, b) => a.qi - b.qi); q.forEach((p, i) => { if (p.qi !== i || !p.target) { p.qi = i; goTo(p, queueSpot(i)); } }); }
 
 function moveAlong(e, dt, speed) {
@@ -533,23 +538,24 @@ function hire(kind) {
 function updateStaff(dt) {
   for (const s of ENT.staff) {
     const prev = { ...s.pos }; const arrived = moveAlong(s, dt, 3.4); s.t += dt;
-    if (s.kind === 'cashier') { if (s.state !== 'till') { s.state = 'till'; goTo(s, { x: SPOTS.till.x - 0.6, z: SPOTS.till.z }); } else if (arrived) { if (playerZone()?.id !== 'till') checkout(dt, 0.75, null); } }
+    if (s.kind === 'cashier') { if (s.state !== 'till') { s.state = 'till'; goTo(s, { x: SPOTS.till.x - 0.35, z: SPOTS.till.z - 0.35 }); } else if (arrived) { if (playerZone()?.id !== 'till') checkout(dt, 0.75, null); } }
     if (s.kind === 'attendant') {
       if (s.state === 'idle' || (s.state === 'go' && !s.car?.needs?.fuel)) { const car = ENT.cars.find((c) => c.state === 'wait' && c.needs.fuel && !ENT.staff.some((o) => o !== s && o.car === c)); if (car) { s.car = car; s.state = 'go'; goTo(s, { x: pumpSpot(car.pump).x - 0.35, z: pumpSpot(car.pump).z + 0.2 }); } else if (s.state !== 'idle') { s.state = 'idle'; goTo(s, { x: 7, z: 6.6 }); } }
       if (s.state === 'go' && arrived && s.car && s.car.state === 'wait' && s.car.needs.fuel) { s.car.fuelP += dt / 4.2; if (s.car.fuelP >= 1) { s.car.needs.fuel = false; s.car.fuelP = 0; earn(priceOf('fuel'), s.car.mesh.position, s.car.pat / s.car.patMax * 0.5); s.state = 'idle'; s.car = null; } }
       if (s.state === 'go' && s.car && s.car.state !== 'wait') { s.state = 'idle'; s.car = null; }
     }
     if (s.kind === 'stocker') {
-      if (s.state === 'idle') { const st = ['soda', 'cereal', 'oil', 'coffee'].map((id) => stations[id]).filter((x) => G.unlocked.has(x.id) && x.stock < x.cap * 0.5).sort((a, b) => a.stock / a.cap - b.stock / b.cap)[0]; if (st) { s.st = st; s.state = 'fetch'; goTo(s, { x: SPOTS.pallet.x + 0.4, z: SPOTS.pallet.z }); } else if (s.t > 2) { s.t = 0; goTo(s, { x: 10.5, z: -7.5 }); } }
+      if (s.state === 'idle') { const st = ['soda', 'cereal', 'oil', 'coffee'].map((id) => stations[id]).filter((x) => G.unlocked.has(x.id) && x.stock < x.cap * 0.5).sort((a, b) => a.stock / a.cap - b.stock / b.cap)[0]; if (st) { s.st = st; s.state = 'fetch'; goTo(s, { x: SPOTS.pallet.x + 0.4, z: SPOTS.pallet.z }); } else if (s.t > 2) { s.t = 0; goTo(s, { x: 11.6, z: -7.0 }); } }
       else if (s.state === 'fetch' && arrived) { s.state = 'load'; s.t = 0; }
       else if (s.state === 'load' && s.t > 1.2) { s.carry = 3; setStaffCarry(s, 3); s.state = 'deliver'; const sp = s.st.id === 'coffee' ? SPOTS.coffee : shelfSpot(s.st.id); goTo(s, { x: sp.x + 0.4, z: sp.z }); }
+      else if (s.state === 'deliver' && !s.st) { s.state = 'idle'; s.carry = 0; setStaffCarry(s, 0); }
       else if (s.state === 'deliver' && arrived && s.t > 0.4) { s.t = 0; if (s.carry > 0 && s.st.stock < s.st.cap) { s.carry--; s.st.stock = Math.min(s.st.cap, s.st.stock + s.st.perCarton); s.st.inst.count = s.st.stock; setStaffCarry(s, s.carry); } else { s.carry = 0; setStaffCarry(s, 0); s.state = 'idle'; } }
     }
     s.mesh.position.set(s.pos.x, groundY(s.pos.z), s.pos.z); if (s.face !== undefined) s.mesh.rotation.y = s.face;
     s.mesh.userData.anim(dt, Math.hypot(s.pos.x - prev.x, s.pos.z - prev.z) / Math.max(dt, 1e-4), s.carry > 0);
   }
 }
-function setStaffCarry(s, n) { const h = s.mesh.userData.hold; while (h.children.length > n) h.remove(h.children[h.children.length - 1]); while (h.children.length < n) { const o = models.clone('sk_carton_s'); o.position.y = h.children.length * 0.17; h.add(o); } }
+function setStaffCarry(s, n) { s.carryObjs = s.carryObjs || []; buildCarry(s.mesh.userData.hold, s.carryObjs, 'carton', n); }
 
 // ---------------------------------------------------------------- day / night (the world shifts with the clock)
 const SKY = [[0, 0xf2b88b, 0.9, 0xffc48a, 1.4], [0.12, 0x9fd3ef, 1.2, 0xfff2dc, 2.5], [0.33, 0x86c8ee, 1.25, 0xffffff, 2.8], [0.48, 0xf4a261, 1.0, 0xffb070, 2.0],
@@ -594,7 +600,7 @@ function updateLabels(dt) {
     else if (c.state === 'queue' && (c.qi === 0 || f < 0.5)) label(c, `<div class="bub${f < 0.25 ? ' mad' : ''}">${ICON.pay}${patBar(f)}</div>`, { x: c.pos.x, y: 2.15, z: c.pos.z });
     else if (c.mad && c.state !== 'queue') label(c, `<div class="bub mad">${ICON.mad}</div>`, { x: c.pos.x, y: 2.15, z: c.pos.z });
   }
-  for (const id of ['soda', 'cereal', 'oil', 'coffee']) { const st = stations[id]; if (!G.unlocked.has(id) || G.state !== 'play' || st.stock >= st.cap * 0.5) continue; const at = id === 'coffee' ? { x: -0.9, y: 1.2, z: -8.3 } : { x: SHELF_X[id], y: 2.15, z: -11.7 };
+  for (const id of ['soda', 'cereal', 'oil', 'coffee']) { const st = stations[id]; if (!G.unlocked.has(id) || G.state !== 'play' || st.stock >= st.cap * 0.5) continue; const at = id === 'coffee' ? { x: -0.9, y: 1.2, z: -8.3 } : { x: SHELF_X[id], y: 2.65, z: -11.7 };
     label(st, `<div class="bub${st.stock ? '' : ' mad'}">${ICON[id]}${st.stock ? patBar(st.stock / st.cap) : '<b style="font-size:11px;color:#c00">EMPTY</b>'}</div>`, at); }
   for (const p of pads) if (padVisible(p)) label(p, `<div class="pad${G.cash < p.cost - p.paid ? ' cant' : ''}">$${p.cost - p.paid}<small>${p.label.toUpperCase()}</small></div>`, { x: p.x, y: 0.35, z: p.z });
   for (const [k, el] of labels) if (el._seen !== frameNo) { el.remove(); labels.delete(k); }
@@ -671,10 +677,10 @@ function updateCamera(dt, snap) {
   if (G.camOverride) { const o = G.camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); return; } // QA close-ups only
   let tx, tz;
   if (G.state === 'title' || G.state === 'loading') { const a = G.t * 0.08; tx = 6 + Math.sin(a) * 3; tz = -1 + Math.cos(a) * 2; }
-  else { tx = clamp(player.position.x, -2, 17); tz = clamp(player.position.z - 0.8, -8.5, 6.5); }
+  else { tx = clamp(player.position.x, -2, 17); tz = clamp(player.position.z - 0.8, camera.aspect < 1 ? -7.6 : -8.5, 6.5); }
   const k = snap ? 1 : 1 - Math.exp(-dt * 4); camT.x += (tx - camT.x) * k; camT.z += (tz - camT.z) * k;
   const portrait = camera.aspect < 1; const vf = THREE.MathUtils.degToRad(camera.fov) / 2, hf = Math.atan(Math.tan(vf) * camera.aspect);
-  const wantW = portrait ? 13 : 24, wantH = portrait ? 21 : 15; let d = Math.max(wantW / 2 / Math.tan(hf), wantH / 2 / Math.tan(vf)); if (G.state === 'title') d *= portrait ? 1.0 : 1.15;
+  const wantW = portrait ? 10.5 : 21, wantH = portrait ? 18 : 13.5; let d = Math.max(wantW / 2 / Math.tan(hf), wantH / 2 / Math.tan(vf)); if (G.state === 'title') d *= portrait ? 1.0 : 1.15;
   camera.position.set(camT.x, Math.sin(PITCH) * d, camT.z + Math.cos(PITCH) * d + (portrait ? 1.2 : 0.8)); camera.lookAt(camT.x, 0.6, camT.z - (portrait ? 0.4 : 0));
   const sd = W.sunDir || new THREE.Vector3(0.5, 1, 0.5); W.sun.position.set(camT.x + sd.x * 40, sd.y * 40, camT.z + sd.z * 40); W.sun.target.position.set(camT.x, 0, camT.z);
 }
@@ -730,6 +736,6 @@ function suggest() {
 // ---------------------------------------------------------------- QA / automation surface
 const api = { G, ENT, W: () => W, stations: () => stations, zones: () => zones, pads: () => pads, player: () => player, input: () => input, scene, camera, renderer, models,
   suggest, findPath, startDay, tutTarget: () => (G.tut < TUT.length && TUT[G.tut].at ? TUT[G.tut].at() : null), shiftGear, buyUpgrade, takePerk, endShift, playerZone, priceOf, UPG, PAD_DEFS, padVisible, setDayLight, activeColliders, applyUnlocks,
-  spawnCar, spawnCustomer, hire, setCarry };
+  spawnCar, spawnCustomer, hire, setCarry, setStaffCarry, shelfSpot };
 window.__fs = { api, ready: false, get fps() { return G.fps; }, get state() { return G.state; } };
 boot().catch((e) => { console.error(e); $('loadTxt').textContent = 'Could not load the station: ' + e.message; });
