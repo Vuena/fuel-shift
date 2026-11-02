@@ -2,9 +2,10 @@
 // that sets the pace (more customers and higher prices in higher gears, less patience). Code: MIT. 3D props: Vuena Simulator
 // Kits Sampler (CC0). Written with AI assistance (Claude).
 import * as THREE from 'three';
-import { Models } from './models.js';
+import { Models, stencilMark } from './models.js';
 import { buildWorld, PUMP_X, SHELF_X, SPOTS, QUEUE, shelfSpot, pumpSpot, baySpot, lyingTyre } from './world.js';
 import { makePerson, makeCar } from './actors.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 
@@ -16,7 +17,7 @@ const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
-const groundY = (z) => ((z > 8.5 && z < 9.9) || (z > 14.2 && z < 15.4) ? 0.12 : 0); // sidewalk kerbs
+const groundY = (z) => ((z > 8.5 && z < 9.9) || (z > 14.2 && z < 15.4) ? 0.12 : z < -3 ? 0.015 : 0); // sidewalk kerbs; shop floor sits 1 cm up
 
 // ---------------------------------------------------------------- tuning
 const SHIFT_LEN = +Q.get('shiftlen') || 240;          // seconds of play per work shift
@@ -65,18 +66,19 @@ const ICON = {
   cereal: '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="1" fill="#2a9d55"/><rect x="5" y="3" width="14" height="5" fill="#ffd23f"/><circle cx="12" cy="14" r="3.5" fill="#ffd23f"/></svg>',
   coffee: '<svg viewBox="0 0 24 24"><path d="M5 8h11v7a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z" fill="#e07a3f"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16" stroke="#e07a3f" stroke-width="2" fill="none"/><path d="M8 2c0 2 2 2 2 4M12 2c0 2 2 2 2 4" stroke="#bbb" stroke-width="1.5" fill="none"/></svg>',
   oil: '<svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="15" rx="2" fill="#111"/><rect x="8" y="3" width="5" height="4" fill="#111"/><rect x="5" y="11" width="14" height="5" fill="#ffd23f"/></svg>',
+  shop: '<svg viewBox="0 0 24 24"><path d="M5 8h14l-1.5 12h-11z" fill="#18c6b3"/><path d="M9 8V6a3 3 0 0 1 6 0v2" stroke="#14213d" stroke-width="2" fill="none"/></svg>',
   pay: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#ffd23f"/><text x="12" y="17" font-size="13" font-weight="900" text-anchor="middle" fill="#8a5a00" font-family="Arial">$</text></svg>',
   mad: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#ff4d5e"/><path d="M7 9l3 1.5M17 9l-3 1.5" stroke="#400" stroke-width="2"/><path d="M8 17c2-2.5 6-2.5 8 0" stroke="#400" stroke-width="2" fill="none"/></svg>',
 };
 
 // ---------------------------------------------------------------- boot
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', stencil: true });
 renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 let pixelRatio = Math.min(devicePixelRatio || 1, TOUCH ? 1.75 : 2); renderer.setPixelRatio(pixelRatio);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8ecae6); scene.fog = new THREE.Fog(0x8ecae6, 45, 110);
-const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 200);
+const camera = new THREE.PerspectiveCamera(45, 1, 2.5, 200); // the game camera is 25-40 m away: a far near plane keeps depth precision (no z-fight)
 const audio = new Audio(); audio.muted = store.get('muted', false);
 const models = new Models();
 let W; // world
@@ -94,10 +96,10 @@ addEventListener('resize', resize);
 let input;
 async function boot() {
   await models.load((p) => { $('loadBar').style.width = Math.round(p * 92) + '%'; });
-  W = buildWorld(scene, models);
+  W = buildWorld(scene, models); staticRoots = scene.children.filter((o) => o !== guide);
   stations = W.stations;
   for (const id of ['soda', 'cereal', 'oil', 'coffee']) {
-    const st = stations[id]; st.inst = models.instancer(st.model, st.slots.length); scene.add(st.inst.group);
+    const st = stations[id]; st.inst = models.instancer(st.model, st.slots.length, false); scene.add(st.inst.group);
     const order = st.slots.map((s, i) => i);
     if (id !== 'coffee' && !st.ordered) { const cx = SHELF_X[id]; order.sort((a, b) => (st.slots[a].z < st.slots[b].z) - (st.slots[b].z < st.slots[a].z) || Math.abs(st.slots[a].x - cx) - Math.abs(st.slots[b].x - cx) || st.slots[b].y - st.slots[a].y); }
     st.order = order.slice(0, st.cap); const m = new THREE.Matrix4(), qq = new THREE.Quaternion();
@@ -105,9 +107,9 @@ async function boot() {
     st.stock = id === 'soda' ? 5 : 0; st.inst.count = st.stock; st.perCarton = Math.ceil(st.cap / 4);
   }
   buildNav(); buildZones();
+  if (!Q.has('qa')) mergeStatic();
   // static world: freeze local matrices below the top-level groups (top-level groups stay live for the pop-in animation)
   scene.updateMatrixWorld(true); for (const top of scene.children) top.traverse((o) => { if (o !== top) { o.matrixAutoUpdate = false; } });
-  renderer.shadowMap.autoUpdate = false; // refreshed every second frame in loop()
   for (const z of [...zones, ...pads]) z.fill.matrixAutoUpdate = true; // progress discs animate by scale
   player = makePerson(models, 'player'); player.position.set(6, 0, 5.6); player.rotation.y = Math.PI; scene.add(player);
   player.userData.carry = []; player.userData.carryType = null; player.userData.carryObjs = [];
@@ -120,7 +122,7 @@ async function boot() {
   requestAnimationFrame(loop);
   $('loader').classList.add('hidden');
   window.__fs.ready = true;
-  if (Q.has('bot')) import('./qa.js').then((m) => m.startBot(api));
+  if (Q.has('bot')) import('./qa.js').then((m) => { m.startBot(api); if (Q.has('navcheck')) m.startNavCheck(api); });
   if (Q.has('qa')) import('./qa.js').then((m) => { window.__fs.qa = m; });
 }
 
@@ -165,9 +167,13 @@ function findPath(from, to) {
       const g2 = gS[i] + (dx && dz ? 1.414 : 1); if (g2 < gS[j]) { gS[j] = g2; came[j] = i; push(j, g2 + h(nx, nz)); }
     }
   }
-  if (!found) return [{ x: to.x, z: to.z }];
-  const cells = []; for (let i = t; i !== -1 && i !== s; i = came[i]) cells.push(i); cells.reverse();
-  const pts = cells.map((i) => ({ x: NAV.x0 + ((i % N) + 0.5) * NAV.cs, z: NAV.z0 + (((i / N) | 0) + 0.5) * NAV.cs })); pts[pts.length - 1] = { x: to.x, z: to.z };
+  let goal = t; if (!found) { // unreachable target: walk to the closest reachable cell instead of a straight line through walls
+    let bd = 1e9; for (let i = 0; i < closed.length; i++) if (closed[i]) { const d = h(i % N, (i / N) | 0); if (d < bd) { bd = d; goal = i; } }
+    if (goal === s) return [];
+  }
+  const cells = []; for (let i = goal; i !== -1 && i !== s; i = came[i]) cells.push(i); cells.reverse();
+  const pts = cells.map((i) => ({ x: NAV.x0 + ((i % N) + 0.5) * NAV.cs, z: NAV.z0 + (((i / N) | 0) + 0.5) * NAV.cs })); if (found) pts[pts.length - 1] = { x: to.x, z: to.z };
+  if (!pts.length) return [];
   const out = []; let cur = from; // string pulling
   for (let k = 0; k < pts.length; k++) { if (k === pts.length - 1 || !freeLine(cur, pts[k + 1])) { out.push(pts[k]); cur = pts[k]; } }
   return out;
@@ -177,7 +183,7 @@ function findPath(from, to) {
 const ringGeo = new THREE.RingGeometry(0.62, 0.76, 40), fillGeo = new THREE.CircleGeometry(0.6, 36), padGeo = new THREE.RingGeometry(0.66, 0.8, 4, 1);
 const ZCOL = { pump: 0x18c6b3, till: 0x3ddc84, pallet: 0xffb347, shelf: 0xffb347, coffee: 0xffb347, jerry: 0xff4d5e, tyre: 0xb0b8c8, pad: 0xffd23f };
 function zoneMesh(kind, x, z, isPad) {
-  const g = new THREE.Group(); g.position.set(x, 0.03, z);
+  const g = new THREE.Group(); g.position.set(x, 0.05, z);
   const ring = new THREE.Mesh(isPad ? padGeo : ringGeo, new THREE.MeshBasicMaterial({ color: ZCOL[kind], transparent: true, opacity: 0.85, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2; if (isPad) ring.rotation.z = Math.PI / 4; g.add(ring);
   const fill = new THREE.Mesh(fillGeo, new THREE.MeshBasicMaterial({ color: ZCOL[kind], transparent: true, opacity: 0.45, depthWrite: false }));
@@ -203,7 +209,41 @@ function applyUnlocks() {
   W.unlockables.jerry.visible = G.unlocked.has('jerry'); W.unlockables.tyre.visible = G.unlocked.has('tyre');
   for (const z of zones) z.g.visible = zoneActive(z);
   for (const p of pads) p.g.visible = padVisible(p);
-  buildNav();
+  buildNav(); rebuildShadowProxy();
+}
+// static shadow casters (shelves, pumps, walls, boxes...) are merged into ONE invisible caster: the shadow pass draws it once per
+// frame instead of ~130 separate meshes. Rebuilt when a station is bought (locked stations cast no shadow).
+let staticRoots = [], shadowProxy = null;
+const proxyMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+function rebuildShadowProxy() {
+  if (shadowProxy) { scene.remove(shadowProxy); shadowProxy.geometry.dispose(); shadowProxy = null; }
+  const parts = []; scene.updateMatrixWorld(true);
+  for (const r of staticRoots) r.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh) return;
+    if (o.userData.staticCaster === undefined) o.userData.staticCaster = o.castShadow; if (!o.userData.staticCaster) return;
+    o.castShadow = false; let vis = o.visible || o.userData.merged; o.traverseAncestors((q) => { if (!q.visible) vis = false; }); if (!vis) return;
+    const g = new THREE.BufferGeometry(); const src = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+    g.setAttribute('position', src.attributes.position.clone()); g.applyMatrix4(o.matrixWorld); parts.push(g); if (src !== o.geometry) src.dispose();
+  });
+  if (!parts.length) return; const geo = mergeGeometries(parts); parts.forEach((g) => g.dispose());
+  shadowProxy = new THREE.Mesh(geo, proxyMat); shadowProxy.castShadow = true; shadowProxy.receiveShadow = false; shadowProxy.frustumCulled = false; shadowProxy.matrixAutoUpdate = false; scene.add(shadowProxy);
+}
+// static meshes that share a material are merged into one mesh (about 490 -> ~150 draw calls in a full shop). The originals stay
+// in the scene, hidden, so nothing else changes; purchasable pumps / jerry rack / tyre stack stay separate (pop-in). Not in ?qa runs
+// (the layout gate and the z-fight scan inspect the original props).
+function mergeStatic() {
+  const skip = new Set([...W.pumps.map((p) => p.group), W.unlockables.jerry, W.unlockables.tyre, guide]); const groups = new Map(); scene.updateMatrixWorld(true);
+  for (const r of staticRoots) { if (skip.has(r)) continue; r.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material) || o.material.transparent || !o.visible) return;
+    let ok = true; o.traverseAncestors((q) => { if (!q.visible || skip.has(q)) ok = false; }); if (!ok) return;
+    const g = o.geometry, key = o.material.uuid + '|' + Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n') + '|' + o.receiveShadow;
+    (groups.get(key) || groups.set(key, []).get(key)).push(o); }); }
+  let before = 0, after = 0;
+  for (const list of groups.values()) { before += list.length; if (list.length < 2) { after++; continue; }
+    const parts = list.map((o) => o.geometry.clone().applyMatrix4(o.matrixWorld)); const geo = mergeGeometries(parts); parts.forEach((q) => q.dispose()); if (!geo) { after += list.length; continue; }
+    const m = new THREE.Mesh(geo, list[0].material); m.receiveShadow = list[0].receiveShadow; m.castShadow = false; m.matrixAutoUpdate = false; m.userData.mergedOf = list.length; scene.add(m); after++;
+    for (const o of list) { o.visible = false; o.userData.merged = true; } }
+  G.merged = { before, after };
 }
 const padVisible = (p) => !G.unlocked.has(p.id) && G.bought >= p.req && G.tut >= 6;
 
@@ -231,7 +271,7 @@ function angry(where, what) {
 // ---------------------------------------------------------------- carrying
 // carried stack: shown 2x (cartons) / 1.4x (jerry cans, two per layer) / 1.25x (tyres) in front of the character, so it reads from the
 // top-down camera even behind the big blocky heads. Shared by the player and the staff.
-const CARRY = { carton: { m: 'sk_carton_s', s: 2.0, h: 0.17, per: 1 }, jerry: { m: 'gs_jerry_can', s: 1.4, h: 0.472, per: 2 }, tyre: { m: 'gs_tire', s: 1.25, h: 0.206, per: 1 } };
+const CARRY = { carton: { m: 'sk_carton_s', s: 2.0, h: 0.17, per: 1 }, jerry: { m: 'gs_jerry_can', s: 1.15, h: 0.472, per: 1 }, tyre: { m: 'gs_tire', s: 1.25, h: 0.206, per: 1 } }; // one centred column each
 function buildCarry(hold, objs, type, n) {
   if (objs.type !== type) { while (objs.length) hold.remove(objs.pop()); objs.type = type; } // a different item: rebuild the stack
   while (objs.length > n) hold.remove(objs.pop());
@@ -239,23 +279,41 @@ function buildCarry(hold, objs, type, n) {
     const k = objs.length, c = CARRY[type], layer = Math.floor(k / c.per), y = layer * c.h * c.s; let o;
     if (type === 'tyre') { o = lyingTyre(models.clone('gs_tire'), 0, y, 0, k); o.scale.setScalar(c.s); }
     else { o = models.clone(c.m); o.scale.setScalar(c.s); o.position.set(c.per > 1 ? (k % 2 ? 0.24 : -0.24) : 0, y, 0); o.rotation.y = (Math.random() - 0.5) * 0.2; }
+    o.traverse((q) => { if (q.isMesh) q.material = carryMat(q.material); }); // carried items also mark the stencil (no x-ray over your own boxes)
     hold.add(o); objs.push(o);
   }
 }
+const carryMats = new Map(); function carryMat(m) { if (!carryMats.has(m)) carryMats.set(m, stencilMark(m.clone())); return carryMats.get(m); }
 function setCarry(type, n) {
   const u = player.userData; u.carryType = n ? type : null; buildCarry(u.hold, u.carryObjs, type, n);
   u.carry.length = n; for (let i = 0; i < n; i++) u.carry[i] = type;
-  const el = $('carry'); el.style.display = n ? 'block' : 'none'; el.textContent = n ? `Carrying ${n} ${type === 'carton' ? 'carton' : type === 'jerry' ? 'jerry can' : 'tyre'}${n > 1 ? 's' : ''} (max ${type === 'tyre' ? Math.max(1, Math.floor(carryCap() / 2)) : carryCap()})` : '';
+  carryHint(true);
 }
 const carryCount = () => player.userData.carry.length;
-const capFor = (type) => (type === 'tyre' ? Math.max(1, Math.floor(carryCap() / 2)) : carryCap());
+// what the carried items are for: HUD line + world arrow target (the car / shelf that needs them)
+const CARNAME = { muscle_blue: 'blue sports car', police_classic: 'police car', icecream_pink: 'ice-cream van', monster_orange: 'monster truck', fire_red: 'fire truck' };
+const SHELFNAME = { soda: 'soda shelf', cereal: 'breakfast shelf', oil: 'motor oil shelf', coffee: 'coffee table' };
+function carryTarget() {
+  const u = player.userData, type = u.carryType; if (!type) return null;
+  if (type === 'carton') { const st = ['soda', 'cereal', 'oil', 'coffee'].filter((id) => G.unlocked.has(id)).map((id) => stations[id]).filter((s) => s.stock < s.cap).sort((a, b) => a.stock / a.cap - b.stock / b.cap)[0];
+    return st ? { at: st.id === 'coffee' ? SPOTS.coffee : shelfSpot(st.id), text: `Take the cartons to the ${SHELFNAME[st.id]}` } : { at: null, text: 'All shelves are full' }; }
+  const car = ENT.cars.filter((c) => c.state === 'wait' && c.needs[type]).sort((a, b) => a.pat - b.pat)[0], item = type === 'jerry' ? 'jerry can' : 'tyre';
+  return car ? { at: pumpSpot(car.pump), car, text: `Bring the ${item} to the ${CARNAME[car.mesh.userData.name] || 'car'} at pump ${car.pump + 1}` } : { at: type === 'jerry' ? SPOTS.jerry : SPOTS.tyre, text: `No one needs a ${item} now: put it back on the pile` };
+}
+let carryTxt = '';
+function carryHint(force) {
+  const el = $('carry'), n = carryCount(); if (!n) { if (el.style.display !== 'none') el.style.display = 'none'; carryTxt = ''; return; }
+  const t = carryTarget(), type = player.userData.carryType, nm = type === 'carton' ? 'carton' : type === 'jerry' ? 'jerry can' : 'tyre';
+  const s = `${n} ${nm}${n > 1 ? 's' : ''} (max ${capFor(type)}): ${t ? t.text : ''}`; if (force || s !== carryTxt) { carryTxt = s; el.textContent = s; el.style.display = 'block'; }
+}
+const capFor = (type) => (type === 'carton' || !type ? carryCap() : Math.max(1, Math.floor(carryCap() / 2))); // jerry cans and tyres are heavy
 
 // ---------------------------------------------------------------- spawning
 function freePump() { const free = PUMP_X.map((x, i) => i).filter((i) => G.unlocked.has('pump' + i) && !ENT.cars.some((c) => c.pump === i)); return free.length ? free[(Math.random() * free.length) | 0] : -1; }
 function spawnCar(opts = {}) {
   const i = opts.pump ?? freePump(); if (i < 0) return null; const S = SHIFTS[G.shift];
   const truck = opts.truck ?? Math.random() < S.truck; const mesh = makeCar(models, truck); scene.add(mesh);
-  const b = baySpot(i); const startX = opts.near ? -14 : -38 - Math.random() * 6;
+  const b = baySpot(i); const lastX = Math.min(-32, ...ENT.cars.filter((c) => c.state === 'in' && c.pos.z > 10).map((c) => c.pos.x)); const startX = opts.near ? -14 : Math.min(-38 - Math.random() * 4, lastX - 7); // queue behind the last arriving car (no spawning inside another car)
   const car = { mesh, pump: i, state: 'in', path: [{ x: b.x - 5, z: 11.3 }, { x: b.x, z: 8.4 }, { x: b.x, z: b.z }], pos: { x: startX, z: 11.3 }, yaw: Math.PI / 2, speed: 9,
     needs: { fuel: true, jerry: !opts.simple && G.unlocked.has('jerry') && Math.random() < S.jerry, tyre: !opts.simple && G.unlocked.has('tyre') && Math.random() < S.tyre * (truck ? 1.6 : 0.6) }, fuelP: 0, pat: 0, patMax: 34, shop: !opts.simple && Math.random() < S.shop, driver: null, mad: false };
   car.patMax = (truck ? 40 : 34) * patienceMul(); car.pat = car.patMax;
@@ -269,11 +327,49 @@ function pickWants(n) {
 }
 function spawnCustomer(from, car, wants) {
   const mesh = makePerson(models, 'customer', { night: G.shift === 2 }); scene.add(mesh); mesh.position.set(from.x, 0, from.z);
-  const c = { mesh, pos: { ...from }, state: 'toDoor', wants: wants || pickWants(1 + (Math.random() < 0.45) + (Math.random() < 0.15)), basket: [], car, home: from, pat: 0, patMax: 30 * patienceMul(), path: null, speed: rnd(2.0, 2.5), wait: 0, item: null };
+  const c = { id: ++NPCID, life: 0, mesh, pos: { ...from }, state: 'toDoor', wants: wants || pickWants(1 + (Math.random() < 0.45) + (Math.random() < 0.15)), basket: [], car, home: from, pat: 0, patMax: 30 * patienceMul(), path: null, speed: rnd(2.0, 2.5), wait: 0, item: null };
   if (!c.wants.length) { scene.remove(mesh); return null; }
-  goTo(c, SPOTS.doorOut); ENT.people.push(c); return c;
+  goTo(c, ENTRY); ENT.people.push(c); return c;
 }
-function goTo(e, p) { e.target = { x: p.x, z: p.z }; e.path = findPath(e.pos, p); }
+// NPCs go in and out of the shop only through a door: outside -> door (outside point) -> door (inside point) -> inside.
+// Customers use the front door; staff may also use the side (stock) door. Glass and walls are colliders for everyone.
+const DOORS = { frontIn: { out: { x: 6.35, z: -2.1 }, in: { x: 6.35, z: -3.9 } }, frontOut: { out: { x: 5.65, z: -2.1 }, in: { x: 5.65, z: -3.9 } }, side: { out: { x: 13.9, z: -9.3 }, in: { x: 12.4, z: -9.3 } } };
+const EXIT = DOORS.frontOut.out, ENTRY = DOORS.frontIn.out; // the 2 m front door has an in lane and an out lane: no head-on jams
+const inShop = (p) => p.x > -3 && p.x < 13 && p.z > -12 && p.z < -3;
+let NPCID = 0;
+function goTo(e, p) {
+  e.target = { x: p.x, z: p.z }; const a = inShop(e.pos), b = inShop(p);
+  if (a === b) { e.path = findPath(e.pos, p); return; }
+  const front = a ? DOORS.frontOut : DOORS.frontIn, doors = e.kind ? [front, DOORS.side] : [front];
+  const d = doors.map((q) => ({ q, c: dist(e.pos, a ? q.in : q.out) + dist(p, a ? q.out : q.in) })).sort((x, y) => x.c - y.c)[0].q;
+  const p1 = a ? d.in : d.out, p2 = a ? d.out : d.in;
+  e.path = [...findPath(e.pos, p1), ...findPath(p1, p2), ...findPath(p2, p)];
+}
+// wall / glass centre lines (door openings excluded): an NPC step that would cross one is refused and re-planned
+const WALLS = [[-3.1, -2.9, 5, -2.9], [7, -2.9, 13.1, -2.9], [-3.1, -12.1, 13.1, -12.1], [-3.1, -12.1, -3.1, -2.9], [13.1, -12.1, 13.1, -10], [13.1, -8.6, 13.1, -2.9]];
+function crossesWall(a, b) {
+  for (const [x1, z1, x2, z2] of WALLS) { const d1x = b.x - a.x, d1z = b.z - a.z, d2x = x2 - x1, d2z = z2 - z1, den = d1x * d2z - d1z * d2x; if (Math.abs(den) < 1e-9) continue;
+    const t = ((x1 - a.x) * d2z - (z1 - a.z) * d2x) / den, u = ((x1 - a.x) * d1z - (z1 - a.z) * d1x) / den; if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return true; }
+  return false;
+}
+// NPCs (customers + staff) keep 0.5 m apart, step aside for the player and never stand inside shelves, counters or walls
+const NPC_R = 0.25;
+function separate() {
+  const L = [...ENT.people, ...ENT.staff], cols = activeColliders();
+  for (let it = 0; it < 3; it++) for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+    const a = L[i].pos, b = L[j].pos; let dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz); if (d >= 0.5) continue; if (d < 1e-4) { dx = Math.random() - 0.5; dz = Math.random() - 0.5; d = Math.hypot(dx, dz); }
+    const k = (0.5 - d) / 2 / d; a.x -= dx * k; a.z -= dz * k; b.x += dx * k; b.z += dz * k;
+  }
+  const pp = player.position;
+  for (const e of L) {
+    const prev = e.lastSafe || { ...e.pos }, p = e.pos; let dx = p.x - pp.x, dz = p.z - pp.z, d = Math.hypot(dx, dz); if (!(e.ghostT > 0) && d < 0.55 && d > 1e-4) { p.x += dx / d * (0.55 - d); p.z += dz / d * (0.55 - d); }
+    for (const c of cols) { const cx = clamp(p.x, c.x0, c.x1), cz = clamp(p.z, c.z0, c.z1); dx = p.x - cx; dz = p.z - cz; d = Math.hypot(dx, dz);
+      if (d < NPC_R) { if (d > 1e-5) { p.x = cx + dx / d * NPC_R; p.z = cz + dz / d * NPC_R; } else { const l = p.x - c.x0, r = c.x1 - p.x, t = p.z - c.z0, bb = c.z1 - p.z, m = Math.min(l, r, t, bb); if (m === l) p.x = c.x0 - NPC_R; else if (m === r) p.x = c.x1 + NPC_R; else if (m === t) p.z = c.z0 - NPC_R; else p.z = c.z1 + NPC_R; } } }
+    if (crossesWall(prev, p)) { p.x = prev.x; p.z = prev.z; } // a push may never move anyone through a wall
+    e.lastSafe = { x: p.x, z: p.z };
+    e.mesh.position.set(p.x, groundY(p.z), p.z);
+  }
+}
 
 // ---------------------------------------------------------------- shift + gear
 function shiftGear(d) {
@@ -287,7 +383,7 @@ function shiftGear(d) {
 function startDay() {
   Object.assign(G, { checkouts: 0, cash: 0, earned: 0, served: 0, lost: 0, rep: 4, gear: 1, shift: 0, shiftT: 0, bought: 0, perks: new Set(), spawnT: 2, t: 0, lastBad: -99, shiftStats: { earned: 0, served: 0, lost: 0 } });
   for (const k in G.lvl) G.lvl[k] = 0; G.unlocked = new Set(['pump0', 'soda']);
-  for (const c of ENT.cars) scene.remove(c.mesh); for (const p of ENT.people) scene.remove(p.mesh); for (const s of ENT.staff) scene.remove(s.mesh);
+  for (const c of ENT.cars) scene.remove(c.mesh); for (const p of ENT.people) { scene.remove(p.mesh); p.mesh.userData.dispose(); } for (const s of ENT.staff) { scene.remove(s.mesh); s.mesh.userData.dispose(); }
   ENT.cars.length = ENT.people.length = ENT.staff.length = 0; for (const p of pads) p.paid = 0; markCars();
   for (const id of ['soda', 'cereal', 'oil', 'coffee']) { stations[id].stock = id === 'soda' ? 5 : 0; stations[id].inst.count = stations[id].stock; }
   player.position.set(6, 0, 5.6); setCarry(null, 0);
@@ -345,10 +441,35 @@ const TUT = [
 function tutShow() {
   const h = $('hint'), f = $('fingerHint'), gp = $('gearPoint');
   if (G.tut >= TUT.length || G.state !== 'play') { h.style.display = 'none'; f.style.display = 'none'; gp.style.display = 'none'; return; }
-  const s = TUT[G.tut]; h.style.display = 'block'; h.textContent = (TOUCH && s.touch) || s.t;
-  h.className = 'chip' + (s.gear ? ' gear' : TOUCH && G.tut === 0 ? ' touch' : '');
+  const s = TUT[G.tut]; h.style.display = 'block'; setHint((TOUCH && s.touch) || s.t, true);
+  h.className = 'chip' + (s.gear ? ' gear' : TOUCH ? ' touch' : '');
   if (TOUCH && G.tut === 0) { const hm = input.home; f.style.display = 'block'; f.style.left = hm.x + 'px'; f.style.top = hm.y + 'px'; } else f.style.display = 'none';
   if (s.gear) { const r = $('gUp').getBoundingClientRect(); gp.style.display = 'block'; gp.style.left = r.left + r.width / 2 - 12 + 'px'; gp.style.top = r.top - 46 + 'px'; } else gp.style.display = 'none';
+}
+function setHint(text, skippable) {
+  const h = $('hint'); if (h._t === text + skippable) return; h._t = text + skippable;
+  h.innerHTML = ''; h.appendChild(document.createTextNode(text));
+  if (skippable) { const b = document.createElement('button'); b.className = 'skip'; b.textContent = 'Skip tutorial'; b.onclick = (e) => { e.stopPropagation(); audio.ui(); skipTutorial(); }; h.appendChild(b); }
+}
+function skipTutorial() { G.tut = TUT.length; G.tutT = 0; store.set('tutDone', true); applyUnlocks(); tutShow(); toast('Tutorial skipped. Stand in the rings to work; gold pads buy stations.', 'good'); }
+// one-time guided steps the first time a car asks for a jerry can / tyre (shown once per browser, never during the main tutorial)
+let coach = null;
+function coachTick() {
+  if (G.tut < TUT.length || G.state !== 'play') return;
+  if (!coach) for (const type of ['jerry', 'tyre']) {
+    if (store.get('coach.' + type, false) || !G.unlocked.has(type)) continue;
+    const car = ENT.cars.find((c) => c.state === 'wait' && c.needs[type]); if (!car) continue;
+    coach = { type, car, step: 0 }; audio.play('select', { vol: 0.5 }); break;
+  }
+  if (!coach) return;
+  const c = coach, item = c.type === 'jerry' ? 'jerry can' : 'tyre', u = player.userData;
+  if (!ENT.cars.includes(c.car) || c.car.state !== 'wait' || !c.car.needs[c.type]) { // delivered (or the car gave up)
+    if (!c.car.needs[c.type]) { store.set('coach.' + c.type, true); toast(`Nice! Cars with a ${item} icon pay extra for it.`, 'good'); }
+    coach = null; $('hint').style.display = 'none'; return;
+  }
+  c.at = u.carryType === c.type ? () => pumpSpot(c.car.pump) : () => (c.type === 'jerry' ? SPOTS.jerry : SPOTS.tyre);
+  const txt = u.carryType === c.type ? `Now bring the ${item} to the ${CARNAME[c.car.mesh.userData.name] || 'car'} at pump ${c.car.pump + 1}.` : `The ${CARNAME[c.car.mesh.userData.name] || 'car'} at pump ${c.car.pump + 1} wants a ${item}. Grab one at the ${c.type === 'jerry' ? 'red jerry can rack' : 'tyre stack'}.`;
+  const h = $('hint'); h.style.display = 'block'; h.className = 'chip' + (TOUCH ? ' touch' : ''); setHint(txt, false);
 }
 function tutNext() {
   G.tut++; G.tutT = 0; audio.play('select', { vol: 0.5 });
@@ -392,11 +513,13 @@ function movePlayer(dt) {
   u.anim(dt, moved / Math.max(dt, 1e-4), carryCount() > 0);
   if (moved > 0.001) { u.stepD = (u.stepD || 0) + moved; if (u.stepD > 0.75) { u.stepD = 0; audio.step(u.stepN = (u.stepN || 0) + 1); } G.idleT = 0; } else G.idleT += dt;
 }
+let lastZone = null;
 function work(dt) {
   const z = playerZone(); const u = player.userData;
   for (const zz of zones) if (zz !== z) zz.prog = Math.max(0, zz.prog - dt * 2);
+  if (z !== lastZone) { if (z) { z.t = 0; z.stand = 0; z.told = false; } lastZone = z; } // timers restart on entering a ring
   if (!z) return;
-  z.t = (z.t || 0) + dt;
+  z.t = (z.t || 0) + dt; z.stand = (z.stand || 0) + dt;
   if (z.kind === 'pad') return payPad(z, dt);
   if (z.kind === 'pump') {
     const car = ENT.cars.find((c) => c.pump === z.i && c.state === 'wait');
@@ -421,13 +544,15 @@ function work(dt) {
     return;
   }
   if (z.kind === 'jerry' || z.kind === 'tyre') {
+    if (u.carryType === z.kind && !ENT.cars.some((c) => c.state === 'wait' && c.needs[z.kind]) && z.t > 0.6) { setCarry(null, 0); toast('Put back on the pile.'); z.t = 0; return; }
     const type = z.kind; if (u.carryType && u.carryType !== type) { if (z.t > 0.5) { setCarry(null, 0); toast('Put the other items back.', ''); z.t = 0; } return; }
     const want = ENT.cars.filter((c) => c.state === 'wait' && c.needs[type]).length;
-    if (carryCount() < capFor(type) && z.t > 0.3) { if (!want && carryCount() >= 1) return; z.t = 0; setCarry(type, carryCount() + 1); audio.pick(); }
+    if (!want) { if (!z.told && z.stand > 0.6) { z.told = true; toast(type === 'jerry' ? 'No one needs a jerry can right now. Cars that do show a red can icon.' : 'No one needs a tyre right now. Trucks that do show a tyre icon (mostly at night).'); } return; }
+    z.told = false; if (carryCount() < Math.min(capFor(type), want) && z.t > 0.3) { z.t = 0; setCarry(type, carryCount() + 1); audio.pick(); }
   }
 }
 function payPad(p, dt) {
-  if (G.cash <= 0) { if (!p.told) { p.told = true; toast(`Need $${p.cost - p.paid} more for ${p.label}.`, 'bad'); } return; }
+  if (G.cash <= 0) { if (!p.told && p.stand > 0.6) { p.told = true; toast(`Need $${p.cost - p.paid} more for ${p.label}.`, 'bad'); } return; }
   p.told = false; const rate = Math.max(40, p.cost * 1.1) * dt; const amt = Math.min(G.cash, p.cost - p.paid, Math.ceil(rate));
   G.cash -= amt; p.paid += amt; p.fill.scale.setScalar(Math.max(0.001, p.paid / p.cost)); if (Math.random() < 0.3) audio.coin(p.paid);
   if (p.paid >= p.cost) {
@@ -443,7 +568,7 @@ function checkout(dt, mul, z) {
   c.co = (c.co || 0) + dt / need * mul; if (z) z.prog = Math.min(1, c.co);
   if (c.co >= 1) {
     const total = c.basket.reduce((a, it) => a + priceOf(it), 0); earn(total, { x: c.pos.x, y: 2, z: c.pos.z }, c.pat / c.patMax); G.checkouts = (G.checkouts || 0) + 1; if (!c.car) served(c.pos); audio.play('select', { vol: 0.3, rate: 1.3 });
-    c.state = 'leave'; if (c.car) goTo(c, { x: baySpot(c.car.pump).x - 1.25, z: baySpot(c.car.pump).z }); else goTo(c, SPOTS.doorOut); c.co = 0; if (z) z.prog = 0;
+    c.state = 'leave'; if (c.car) goTo(c, carSide(c.car)); else goTo(c, EXIT); c.co = 0; if (z) z.prog = 0;
     reQueue(); return true;
   }
   return true;
@@ -452,25 +577,47 @@ function queueSpot(i) { return QUEUE[Math.min(i, QUEUE.length - 1)]; }
 function reQueue() { const q = ENT.people.filter((p) => p.state === 'queue').sort((a, b) => a.qi - b.qi); q.forEach((p, i) => { if (p.qi !== i || !p.target) { p.qi = i; goTo(p, queueSpot(i)); } }); }
 
 function moveAlong(e, dt, speed) {
-  if (!e.path || !e.path.length) return true;
+  if (!e.path || !e.path.length) { e.stallT = 0; return true; }
+  if (e.id) { // stall watchdog: no progress for 2 s -> re-plan, and squeeze past the player for 2 s
+    const lp = e.progAt || (e.progAt = { ...e.pos }); if (Math.hypot(e.pos.x - lp.x, e.pos.z - lp.z) > 0.15) { e.progAt = { ...e.pos }; e.stallT = 0; } else e.stallT = (e.stallT || 0) + dt;
+    if (e.stallT > 2) { e.stallT = 0; e.progAt = { ...e.pos }; e.ghostT = 2; if (e.target) { goTo(e, e.target); if (!e.path.length) return true; } }
+    if (e.ghostT > 0) e.ghostT -= dt;
+  }
   const t = e.path[0], dx = t.x - e.pos.x, dz = t.z - e.pos.z, d = Math.hypot(dx, dz), step = speed * dt;
-  if (d <= step) { e.pos.x = t.x; e.pos.z = t.z; e.path.shift(); } else { e.pos.x += (dx / d) * step; e.pos.z += (dz / d) * step; e.face = Math.atan2(dx, dz); }
+  let ux = dx / (d || 1), uz = dz / (d || 1);
+  if (e.id && e.path.length === 1 && d < 0.9 && ENT.people.concat(ENT.staff).some((o) => o !== e && !(o.path && o.path.length) && dist(o.pos, t) < 0.45)) { e.path.length = 0; return true; } // my spot is taken by someone standing: stop here
+  if (e.id) for (const o of ENT.people.concat(ENT.staff, e.ghostT > 0 ? [] : [{ pos: player.position, id: 0 }])) { // local avoidance (NPCs; the player is a standing obstacle unless squeezing past)
+    if (o === e) continue; const rx = o.pos.x - e.pos.x, rz = o.pos.z - e.pos.z, rd = Math.hypot(rx, rz); if (rd > 0.8 || rd < 1e-4) continue;
+    const ahead = (rx * ux + rz * uz) / rd; if (ahead < 0.55) continue;
+    if (o.path && o.path.length && o.id < e.id && rd < 0.62) { e.yieldT = (e.yieldT || 0) + dt; if (e.yieldT < 1.2) return false; } // wait for them (lower id goes first)
+    const side = Math.sign(rx * uz - rz * ux) || 1; const sx = -uz * side, sz = ux * side; const k = (0.8 - rd) / 0.8 * 1.4; // step aside, away from them
+    ux += sx * k; uz += sz * k; const l = Math.hypot(ux, uz); ux /= l; uz /= l;
+  }
+  e.yieldT = 0;
+  const nx = d <= step ? t.x : e.pos.x + ux * step, nz = d <= step ? t.z : e.pos.z + uz * step;
+  if (crossesWall(e.pos, { x: nx, z: nz })) { if (e.target) goTo(e, e.target); return false; }
+  if (d <= step) { e.pos.x = t.x; e.pos.z = t.z; e.path.shift(); } else { e.pos.x = nx; e.pos.z = nz; e.face = Math.atan2(ux, uz); }
   return !e.path.length;
 }
 function updatePeople(dt) {
   for (const c of ENT.people.slice()) {
-    const prev = { ...c.pos }; const arrived = moveAlong(c, dt, c.speed);
+    c.life += dt;
+    if (c.life > 150 && c.state !== 'leave' && c.state !== 'exit') { G.qaRescue = (G.qaRescue || 0) + 1; c.mad = true; c.state = 'leave'; goTo(c, c.car ? carSide(c.car) : EXIT); reQueue(); } // never reached in tests (counted)
+    if (c.life > 220) { G.qaRescue = (G.qaRescue || 0) + 1; if (c.car) c.car.driverBack = true; removePerson(c); reQueue(); continue; }
+    const prev = { ...c.pos };
+    const hold = c.state === 'queue' && c.path && c.path.length && ENT.people.some((o) => o !== c && dist(o.pos, c.target) < 0.62); // wait until the slot ahead is free
+    const arrived = hold ? false : moveAlong(c, dt, c.speed);
     if (c.state === 'toDoor' && arrived) { c.state = 'shop'; nextWant(c); }
     else if (c.state === 'toStation' && arrived) { c.state = 'atStation'; c.wait = 0; }
     else if (c.state === 'atStation') {
       const st = stations[c.wants[0]]; c.wait += dt;
       if (st.stock > 0 && c.wait > 0.5) { st.stock--; st.inst.count = st.stock; c.basket.push(c.wants.shift()); c.pat = Math.min(c.patMax, c.pat + 6); audio.play('plank', { vol: 0.15, rate: 1.6 }); holdItem(c); nextWant(c); }
-      else if (st.stock <= 0) { c.pat -= dt; if (c.pat <= 0) { angry({ x: c.pos.x, y: 2, z: c.pos.z }); c.mad = true; c.state = 'leave'; goTo(c, c.car ? { x: baySpot(c.car.pump).x - 1.25, z: baySpot(c.car.pump).z } : SPOTS.doorOut); } }
+      else if (st.stock <= 0) { c.pat -= dt; if (c.pat <= 0) { angry({ x: c.pos.x, y: 2, z: c.pos.z }); c.mad = true; c.state = 'leave'; goTo(c, c.car ? carSide(c.car) : EXIT); } }
     } else if (c.state === 'queue') {
       if (!(c.qi === 0 && dist(c.pos, c.target) < 0.3 && (playerZone()?.id === 'till' || G.lvl.cashier))) c.pat -= dt * 0.8;
-      if (c.pat <= 0) { angry({ x: c.pos.x, y: 2, z: c.pos.z }); c.mad = true; c.state = 'leave'; goTo(c, c.car ? { x: baySpot(c.car.pump).x - 1.25, z: baySpot(c.car.pump).z } : SPOTS.doorOut); reQueue(); }
+      if (c.pat <= 0) { angry({ x: c.pos.x, y: 2, z: c.pos.z }); c.mad = true; c.state = 'leave'; goTo(c, c.car ? carSide(c.car) : EXIT); reQueue(); }
     } else if (c.state === 'leave' && arrived) {
-      if (dist(c.pos, SPOTS.doorOut) < 0.4 && !c.car) { c.state = 'exit'; goTo(c, c.home); }
+      if (dist(c.pos, EXIT) < 0.4 && !c.car) { c.state = 'exit'; goTo(c, c.home); }
       else if (c.car) { c.car.driverBack = true; c.car.mad = c.car.mad || c.mad; removePerson(c); continue; }
       else { c.state = 'exit'; goTo(c, c.home); }
     } else if (c.state === 'exit' && arrived) { removePerson(c); continue; }
@@ -484,11 +631,15 @@ function holdItem(c) {
   const it = c.basket[c.basket.length - 1]; const o = models.clone(stations[it].model); o.position.set(0, -0.05, -0.12); c.mesh.userData.hold.add(o); c.item = o;
 }
 function nextWant(c) {
-  if (c.wants.length) { const id = c.wants[0]; const s = id === 'coffee' ? SPOTS.coffee : shelfSpot(id); c.state = 'toStation'; goTo(c, { x: s.x + rnd(-0.35, 0.35), z: s.z + rnd(-0.1, 0.25) }); c.pat = Math.max(c.pat, c.patMax * 0.75); return; }
-  if (!c.basket.length) { c.state = 'leave'; goTo(c, SPOTS.doorOut); return; }
+  if (c.wants.length) { // each station has fixed standing slots 0.55 m apart; take a free one (nearest to the centre)
+    const id = c.wants[0], s = id === 'coffee' ? SPOTS.coffee : shelfSpot(id), offs = id === 'coffee' ? [0, -0.55, 0.55] : [0, -0.55, 0.55, -1.0, 1.0];
+    const taken = (q) => ENT.people.some((o) => o !== c && o.target && (o.state === 'toStation' || o.state === 'atStation') && dist(o.target, q) < 0.3);
+    const slot = offs.map((dx) => ({ x: s.x + dx, z: s.z + 0.05 })).find((q) => !taken(q)) || { x: s.x + rnd(-1, 1), z: s.z + 0.5 };
+    c.state = 'toStation'; goTo(c, slot); c.pat = Math.max(c.pat, c.patMax * 0.75); return; }
+  if (!c.basket.length) { c.state = 'leave'; goTo(c, EXIT); return; }
   c.state = 'queue'; c.qi = ENT.people.filter((p) => p.state === 'queue' && p !== c).length; c.pat = c.patMax; goTo(c, queueSpot(c.qi));
 }
-function removePerson(c) { scene.remove(c.mesh); ENT.people.splice(ENT.people.indexOf(c), 1); dropLabel(c); }
+function removePerson(c) { scene.remove(c.mesh); c.mesh.userData.dispose(); ENT.people.splice(ENT.people.indexOf(c), 1); dropLabel(c); }
 
 function updateCars(dt) {
   for (const car of ENT.cars.slice()) {
@@ -496,7 +647,7 @@ function updateCars(dt) {
     if (car.state === 'in' || car.state === 'out') {
       let blocked = false; const hx = Math.sin(car.yaw), hz = Math.cos(car.yaw);
       for (const o of ENT.cars) { if (o === car) continue; const dx = o.pos.x - car.pos.x, dz = o.pos.z - car.pos.z, d = Math.hypot(dx, dz); if (d < 5.6 && (dx * hx + dz * hz) > d * 0.75) { blocked = true; break; } }
-      const pd = Math.hypot(player.position.x - car.pos.x, player.position.z - car.pos.z); if (!car.ambient && pd < 2.6 && ((player.position.x - car.pos.x) * hx + (player.position.z - car.pos.z) * hz) > pd * 0.6) blocked = true;
+      for (const q of [player.position, ...ENT.people.map((c) => c.pos), ...ENT.staff.map((s) => s.pos)]) { const pd = Math.hypot(q.x - car.pos.x, q.z - car.pos.z); if (pd < 2.8 && ((q.x - car.pos.x) * hx + (q.z - car.pos.z) * hz) > pd * 0.6) { blocked = true; break; } } // stop for anyone ahead
       car.v = clamp((car.v || car.speed) + (blocked ? -30 : 8) * dt, 0, car.speed * GEAR.drive[gi()]);
       const t = car.path[0]; if (t) {
         const dx = t.x - car.pos.x, dz = t.z - car.pos.z, d = Math.hypot(dx, dz); const near = car.state === 'in' && car.path.length === 1 ? Math.max(1.6, Math.min(car.v, d * 1.6)) : car.v;
@@ -511,12 +662,13 @@ function updateCars(dt) {
     } else if (car.state === 'wait') {
       const pending = car.needs.fuel || car.needs.jerry || car.needs.tyre;
       if (pending) { car.pat -= dt; if (car.pat <= 0) { car.mad = true; angry({ x: car.pos.x, y: 2.2, z: car.pos.z }); audio.play('bong', { vol: 0.5, rate: 0.6 }); leaveCar(car); } }
-      else if (car.shop && !car.driver) { car.state = 'park'; car.driver = spawnCustomer({ x: car.pos.x - 1.25, z: car.pos.z }, car, car.wants && car.wants.slice()); if (!car.driver) leaveCar(car); }
+      else if (car.shop && !car.driver) { car.state = 'park'; car.driver = spawnCustomer(carSide(car), car, car.wants && car.wants.slice()); if (!car.driver) leaveCar(car); }
       else leaveCar(car);
-    } else if (car.state === 'park') { if (car.driverBack) leaveCar(car); }
+    } else if (car.state === 'park') { if (car.driverBack || !car.driver || !ENT.people.includes(car.driver)) leaveCar(car); } // the driver is back (or gone): drive off
     m.position.set(car.pos.x, 0, car.pos.z); m.rotation.y = car.yaw;
   }
 }
+function carSide(car) { const b = baySpot(car.pump); return { x: b.x - car.mesh.userData.width / 2 - 0.45, z: b.z }; } // driver door, clear of the car body
 function leaveCar(car) { if (!car.mad) served(car.pos); const b = baySpot(car.pump); car.state = 'out'; car.v = 0; markCars(); car.path = [{ x: b.x, z: -0.4 }, { x: b.x + 1.8, z: -1.1 }, { x: 20.4, z: -1.1 }, { x: 21.4, z: 0.4 }, { x: 21.4, z: 10.6 }, { x: 23.4, z: 12.7 }, { x: 70, z: 12.7 }]; }
 
 function spawner(dt) {
@@ -532,7 +684,7 @@ function spawner(dt) {
 
 // ---------------------------------------------------------------- staff (hired helpers)
 function hire(kind) {
-  const mesh = makePerson(models, 'staff'); scene.add(mesh); const s = { kind, mesh, pos: { x: 6, z: -2 }, path: null, state: 'idle', carry: 0, t: 0 };
+  const mesh = makePerson(models, 'staff'); scene.add(mesh); const s = { id: ++NPCID, kind, mesh, pos: { x: 6, z: -2 }, path: null, state: 'idle', carry: 0, t: 0 };
   mesh.position.set(6, 0, -2); ENT.staff.push(s); toast(`Your new ${kind} clocked in!`, 'good');
 }
 function updateStaff(dt) {
@@ -566,7 +718,8 @@ function setDayLight(p) {
   cA.setHex(a[1]).lerp(cB.setHex(b[1]), t); scene.background.copy(cA); scene.fog.color.copy(cA);
   W.hemi.intensity = a[2] + (b[2] - a[2]) * t; W.hemi.color.copy(cA).lerp(cB.setHex(0xffffff), 0.45); W.hemi.groundColor.setHex(0x6b5a45).lerp(cB.setHex(0x101830), clamp((p - 0.55) / 0.15, 0, 1) * (1 - clamp((p - 0.95) / 0.05, 0, 1)));
   W.sun.color.setHex(a[3]).lerp(cB.setHex(b[3]), t); W.sun.intensity = a[4] + (b[4] - a[4]) * t;
-  const ang = -0.3 + p * 1.8 * Math.PI; W.sunDir = new THREE.Vector3(Math.cos(ang) * 0.8, 0.9 + 0.4 * Math.max(0, Math.sin(p * Math.PI * 1.4)), 0.55).normalize();
+  const ps = (Math.min(2, Math.floor(p * 3)) + 0.5) / 3; // the sun / moon direction is fixed per shift: a moving light makes shadow edges crawl
+  const ang = -0.3 + ps * 1.8 * Math.PI; W.sunDir = new THREE.Vector3(Math.cos(ang) * 0.8, 0.9 + 0.4 * Math.max(0, Math.sin(ps * Math.PI * 1.4)), 0.55).normalize();
   const night = clamp((p - 0.56) / 0.1, 0, 1) * (1 - clamp((p - 0.97) / 0.03, 0, 1));
   for (const l of W.lamps) l.l.intensity = l.on * night; for (const n of W.nightMats) n.m.emissiveIntensity = (n.off || 0) + (n.on - (n.off || 0)) * night;
   for (const c of ENT.cars) if (c.mesh.userData.head) c.mesh.userData.head.emissiveIntensity = 0.25 + night * 2.5;
@@ -591,7 +744,9 @@ let frameNo = 0;
 function updateLabels(dt) {
   frameNo++;
   for (const car of ENT.cars) {
-    if (car.state !== 'wait' || car.ambient) continue; const f = car.pat / car.patMax; const ic = [car.needs.fuel && ICON.fuel, car.needs.jerry && ICON.jerry, car.needs.tyre && ICON.tyre].filter(Boolean).join('');
+    if (car.ambient) continue;
+    if (car.state === 'park' && car.driver) { const d = car.driver, f = d.pat / d.patMax; label(car, `<div class="bub">${ICON.shop}<b style="font-size:11px">inside</b>${patBar(f)}</div>`, { x: car.pos.x, y: car.mesh.userData.h + 0.45, z: car.pos.z }); continue; }
+    if (car.state !== 'wait') continue; const f = car.pat / car.patMax; const ic = [car.needs.fuel && ICON.fuel, car.needs.jerry && ICON.jerry, car.needs.tyre && ICON.tyre].filter(Boolean).join('');
     if (ic) label(car, `<div class="bub${f < 0.25 ? ' mad' : ''}">${ic}${patBar(f)}</div>`, { x: car.pos.x, y: car.mesh.userData.h + 0.45, z: car.pos.z });
   }
   for (const c of ENT.people) {
@@ -602,6 +757,8 @@ function updateLabels(dt) {
   }
   for (const id of ['soda', 'cereal', 'oil', 'coffee']) { const st = stations[id]; if (!G.unlocked.has(id) || G.state !== 'play' || st.stock >= st.cap * 0.5) continue; const at = id === 'coffee' ? { x: -0.9, y: 1.2, z: -8.3 } : { x: SHELF_X[id], y: 2.65, z: -11.7 };
     label(st, `<div class="bub${st.stock ? '' : ' mad'}">${ICON[id]}${st.stock ? patBar(st.stock / st.cap) : '<b style="font-size:11px;color:#c00">EMPTY</b>'}</div>`, at); }
+  if (G.state === 'play') for (const type of ['jerry', 'tyre']) { if (!G.unlocked.has(type)) continue; const n = ENT.cars.filter((c) => c.state === 'wait' && c.needs[type]).length;
+    if (n) label('pile-' + type, `<div class="bub">${ICON[type]}<b style="font-size:12px">x${n}</b></div>`, type === 'jerry' ? { x: -3.4, y: 1.25, z: 2.4 } : { x: 17.6, y: 1.25, z: 2.4 }); }
   for (const p of pads) if (padVisible(p)) label(p, `<div class="pad${G.cash < p.cost - p.paid ? ' cant' : ''}">$${p.cost - p.paid}<small>${p.label.toUpperCase()}</small></div>`, { x: p.x, y: 0.35, z: p.z });
   for (const [k, el] of labels) if (el._seen !== frameNo) { el.remove(); labels.delete(k); }
   for (const p of ENT.pops.slice()) {
@@ -672,40 +829,63 @@ function setupUi() {
 function pause(on) { if (on && G.state === 'play') { G.state = 'paused'; input.setEnabled(false); $('pauseScr').classList.remove('hidden'); } else if (!on && G.state === 'paused') { G.state = 'play'; input.setEnabled(true); $('pauseScr').classList.add('hidden'); } }
 
 // ---------------------------------------------------------------- camera + render loop
-const camT = new THREE.Vector3(6, 0, 2); const PITCH = 1.0;
+const camT = new THREE.Vector3(6, 0, 2); const PITCH = 1.0, PITCH_P = 1.12;
+let shopZ = 0;
+// shadow frustum follows the view but snaps to whole shadow-map texels in light space, so shadows never shimmer as the camera moves
+const _lm = new THREE.Matrix4(), _lx = new THREE.Vector3(), _ly = new THREE.Vector3(), _lz = new THREE.Vector3(), _o = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+function placeSun() {
+  const sd = W.sunDir || new THREE.Vector3(0.5, 1, 0.5), sh = W.sun.shadow.camera, texel = (sh.right - sh.left) / W.sun.shadow.mapSize.x;
+  _lm.lookAt(sd, _o, _up); _lm.extractBasis(_lx, _ly, _lz);
+  const p = new THREE.Vector3(camT.x, 0, camT.z), x = Math.round(p.dot(_lx) / texel) * texel, y = Math.round(p.dot(_ly) / texel) * texel, z = p.dot(_lz);
+  p.copy(_lx).multiplyScalar(x).addScaledVector(_ly, y).addScaledVector(_lz, z);
+  W.sun.target.position.copy(p); W.sun.position.copy(p).addScaledVector(sd, 40); W.sun.target.updateMatrixWorld(); W.sun.updateMatrixWorld();
+}
 function updateCamera(dt, snap) {
+  const nearWant = G.camOverride ? 0.2 : 2.5; if (camera.near !== nearWant) { camera.near = nearWant; camera.updateProjectionMatrix(); }
   if (G.camOverride) { const o = G.camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); return; } // QA close-ups only
   let tx, tz;
   if (G.state === 'title' || G.state === 'loading') { const a = G.t * 0.08; tx = 6 + Math.sin(a) * 3; tz = -1 + Math.cos(a) * 2; }
+  else if (G.qaTarget) { tx = G.qaTarget.x; tz = G.qaTarget.z; snap = true; } // QA: exact, unsmoothed camera target
   else { tx = clamp(player.position.x, -2, 17); tz = clamp(player.position.z - 0.8, camera.aspect < 1 ? -7.6 : -8.5, 6.5); }
   const k = snap ? 1 : 1 - Math.exp(-dt * 4); camT.x += (tx - camT.x) * k; camT.z += (tz - camT.z) * k;
   const portrait = camera.aspect < 1; const vf = THREE.MathUtils.degToRad(camera.fov) / 2, hf = Math.atan(Math.tan(vf) * camera.aspect);
   const wantW = portrait ? 10.5 : 21, wantH = portrait ? 18 : 13.5; let d = Math.max(wantW / 2 / Math.tan(hf), wantH / 2 / Math.tan(vf)); if (G.state === 'title') d *= portrait ? 1.0 : 1.15;
-  camera.position.set(camT.x, Math.sin(PITCH) * d, camT.z + Math.cos(PITCH) * d + (portrait ? 1.2 : 0.8)); camera.lookAt(camT.x, 0.6, camT.z - (portrait ? 0.4 : 0));
-  const sd = W.sunDir || new THREE.Vector3(0.5, 1, 0.5); W.sun.position.set(camT.x + sd.x * 40, sd.y * 40, camT.z + sd.z * 40); W.sun.target.position.set(camT.x, 0, camT.z);
+  const pitch = portrait ? PITCH_P : PITCH;
+  const place = (cz) => { camera.position.set(camT.x, Math.sin(pitch) * d, cz + Math.cos(pitch) * d + (portrait ? 1.2 : 0.8)); camera.lookAt(camT.x, 0.6, cz - (portrait ? 0.4 : 0)); camera.updateMatrixWorld(); };
+  // portrait inside the shop: slide the view south until the top of the back wall sits just below the HUD (no band of grass)
+  let wantZ = camT.z;
+  if (portrait && !G.qaTarget && G.state !== 'title' && player.position.z < -3.1 && player.position.x > -3.2 && player.position.x < 13.2) {
+    const hudB = Math.max(0, ...['upgBtn', 'shiftbox', 'cash'].map((id) => { const r = $(id) && $(id).getBoundingClientRect(); return r && r.width > 0 ? r.bottom : 0; })) + 8; // fixed elements: offsetParent is always null
+    const yOf = (cz) => { place(cz); tmpV.set(camT.x, 2.9, -12.2).project(camera); return (1 - tmpV.y) / 2 * innerHeight; };
+    if (yOf(camT.z) > hudB) { let lo = camT.z, hi = camT.z + 12; for (let i = 0; i < 16; i++) { const mid = (lo + hi) / 2; if (yOf(mid) > hudB) lo = mid; else hi = mid; } wantZ = lo; }
+  }
+  shopZ = snap ? wantZ : shopZ + (wantZ - shopZ) * (1 - Math.exp(-dt * 4)); place(shopZ);
+  placeSun();
 }
 let last = performance.now(), fpsAcc = 0, fpsN = 0, lowT = 0;
 function loop(now) {
   requestAnimationFrame(loop);
-  const rdt = Math.min(0.05, (now - last) / 1000); last = now; fpsAcc += rdt; fpsN++;
-  if (fpsAcc > 0.5) { G.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; if (G.fps < 38 && pixelRatio > 1) { lowT++; if (lowT > 3) { pixelRatio = Math.max(1, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowT = 0; } } else lowT = 0; }
+  const rdt = Math.min(0.05, (now - last) / 1000); last = now; if (G.qaHold) return; frame(rdt);
+}
+function frame(rdt) {
+  fpsAcc += rdt; fpsN++;
+  if (fpsAcc > 0.5) { G.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; if (G.fps < 38 && pixelRatio > 1 && !G.qaHold) { lowT++; if (lowT > 3) { pixelRatio = Math.max(1, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); lowT = 0; } } else lowT = 0; }
   const dt = rdt * G.timeScale; G.t += dt;
   if (G.state === 'play') {
     const n = Math.ceil(dt / 0.034), sdt = dt / n; // sub-steps: fast-forwarded QA runs must not tunnel through walls
     for (let k = 0; k < n && G.state === 'play'; k++) {
       G.shiftT += sdt; G.topGear = Math.max(G.topGear || 1, G.gear);
       if (api.botTick) api.botTick(sdt);
-      movePlayer(sdt); work(sdt); tutTick(sdt); spawner(sdt); updateCars(sdt); updatePeople(sdt); updateStaff(sdt);
+      movePlayer(sdt); work(sdt); tutTick(sdt); coachTick(sdt); spawner(sdt); updateCars(sdt); updatePeople(sdt); updateStaff(sdt); separate(); if (api.qaTick) api.qaTick(sdt);
       if (G.shiftT >= SHIFT_LEN) { if (G.shift >= 2) endDay(false); else endShift(); }
     }
     setDayLight(clamp((G.shift + G.shiftT / SHIFT_LEN) / 3, 0, 1));
-    updateHud();
+    updateHud(); carryHint();
   } else if (api.botTick) api.botTick(0); else if (G.state === 'title') { updateCars(dt); spawner(0); if (Math.random() < dt * 0.25) spawnAmbient(); }
   for (const g of popIns.slice()) { g.userData.popT += rdt; const t = g.userData.popT / 0.45; if (t >= 1) { g.scale.setScalar(1); popIns.splice(popIns.indexOf(g), 1); } else g.scale.setScalar(Math.max(0.01, t * (1 + 0.35 * Math.sin(t * Math.PI)))); }
-  for (const z of zones) { if (!z.g.visible) continue; z.fill.scale.setScalar(Math.max(0.001, clamp(z.prog, 0, 1))); const pulse = guideTo && dist(z, guideTo) < 0.1 ? 0.6 + 0.4 * Math.sin(G.t * 8) : 0.85; z.ring.material.opacity = pulse; }
+  for (const z of zones) { if (!z.g.visible) continue; z.fill.scale.setScalar(Math.max(0.001, clamp(z.prog, 0, 1))); const on = guideTo && dist(z, guideTo) < 0.1; z.ring.material.opacity = on ? 0.6 + 0.4 * Math.sin(G.t * 8) : 0.85; z.ring.scale.setScalar(on ? 1 + 0.12 * Math.abs(Math.sin(G.t * 4)) : 1); }
   updateGuide(rdt);
   if (W && player && G.state !== 'review') { updateCamera(rdt); updateLabels(rdt); }
-  if ((frameNo & 1) === 0 || G.state === 'review') renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
   if (G.state === 'play' && G.tut < 6 && frameNo % 15 === 0) tutShow();
 }
@@ -718,7 +898,7 @@ const guide = new THREE.Group(); scene.add(guide); guide.visible = false;
 let guideTo = null;
 function updateGuide() {
   guideTo = null;
-  if (G.state === 'play') { if (G.tut < 6 && TUT[G.tut].at) guideTo = TUT[G.tut].at(); else if (G.tut >= 6 && G.idleT > 4) { const s = suggest(); if (s) guideTo = s; } }
+  if (G.state === 'play' && !G.noGuide) { if (G.tut < 6 && TUT[G.tut].at) guideTo = TUT[G.tut].at(); else if (coach && coach.at) guideTo = coach.at(); else if (G.tut >= 6 && carryCount()) { const t = carryTarget(); if (t && t.at) guideTo = t.at; } else if (G.tut >= 6 && G.idleT > 4) { const s = suggest(); if (s) guideTo = s; } }
   guide.visible = !!guideTo; if (guideTo) { guide.position.set(guideTo.x, 1.1 + Math.abs(Math.sin(G.t * 4)) * 0.4, guideTo.z); }
 }
 // what should be done next (used by the guide arrow and the QA bot)
@@ -734,8 +914,8 @@ function suggest() {
 }
 
 // ---------------------------------------------------------------- QA / automation surface
-const api = { G, ENT, W: () => W, stations: () => stations, zones: () => zones, pads: () => pads, player: () => player, input: () => input, scene, camera, renderer, models,
-  suggest, findPath, startDay, tutTarget: () => (G.tut < TUT.length && TUT[G.tut].at ? TUT[G.tut].at() : null), shiftGear, buyUpgrade, takePerk, endShift, playerZone, priceOf, UPG, PAD_DEFS, padVisible, setDayLight, activeColliders, applyUnlocks,
+const api = { frame: (dt) => frame(dt), updateCamera: (dt, snap) => updateCamera(dt, snap), separate: () => separate(), crossesWall, inShop, carryTarget, get coach() { return coach; }, skipTutorial, G, ENT, W: () => W, stations: () => stations, zones: () => zones, pads: () => pads, player: () => player, input: () => input, scene, camera, renderer, models,
+  labels, suggest, findPath, startDay, tutTarget: () => (G.tut < TUT.length && TUT[G.tut].at ? TUT[G.tut].at() : null), shiftGear, buyUpgrade, takePerk, endShift, playerZone, priceOf, UPG, PAD_DEFS, padVisible, setDayLight, activeColliders, applyUnlocks,
   spawnCar, spawnCustomer, hire, setCarry, setStaffCarry, shelfSpot };
 window.__fs = { api, ready: false, get fps() { return G.fps; }, get state() { return G.state; } };
 boot().catch((e) => { console.error(e); $('loadTxt').textContent = 'Could not load the station: ' + e.message; });

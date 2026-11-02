@@ -4,6 +4,7 @@
 // The sample has no carry clip, so carrying is a pose layered on the walk: both arms are aimed forward after the mixer runs.
 import * as THREE from 'three';
 import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
+import { stencilMark } from './models.js';
 
 const mats = new Map();
 export function mat(color, o = {}) {
@@ -19,7 +20,14 @@ const CUSTOMERS = ['blocky_03_knight', 'blocky_05_wizard', 'blocky_06_pirate', '
 // light per-instance tints (multiplied over the palette texture) so repeated characters still look varied
 const TINTS = [null, null, 0xffeedd, 0xe4ecff, 0xffe2ec, 0xe6ffe6, 0xfff6cc];
 const tintCache = new Map();
-function tinted(m, hex) { const k = m.uuid + hex; if (!tintCache.has(k)) { const c = m.clone(); c.color.setHex(hex); tintCache.set(k, c); } return tintCache.get(k); }
+function tinted(m, hex) { const k = m.uuid + hex; if (!tintCache.has(k)) { const c = stencilMark(m.clone()); c.color.setHex(hex); tintCache.set(k, c); } return tintCache.get(k); }
+// x-ray: a second skinned mesh on the same skeleton, drawn only where it is behind something (GreaterDepth) and not over a character
+const xrayMats = new Map();
+function xrayMat(color) {
+  if (!xrayMats.has(color)) xrayMats.set(color, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75, depthWrite: false, depthFunc: THREE.GreaterDepth,
+    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp }));
+  return xrayMats.get(color);
+}
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _wq = new THREE.Quaternion();
 // rotate `bone` (in world space) so the bone -> child direction points along `dir`
@@ -35,6 +43,9 @@ export function makePerson(models, kind = 'customer', { night = false } = {}) {
   const src = models.chars[name]; const g = new THREE.Group(); const m = skClone(src.scene); m.scale.setScalar(0.92);
   const tint = kind === 'customer' ? pick(TINTS) : null;
   m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; if (tint) o.material = tinted(o.material, tint); } });
+  if (kind !== 'customer') { const skins = []; m.traverse((o) => { if (o.isSkinnedMesh) skins.push(o); });
+    for (const o of skins) { const s = new THREE.SkinnedMesh(o.geometry, xrayMat(kind === 'player' ? 0xfff176 : 0x3fe0cc)); s.bind(o.skeleton, o.bindMatrix);
+      s.position.copy(o.position); s.quaternion.copy(o.quaternion); s.scale.copy(o.scale); s.renderOrder = 20; s.frustumCulled = false; s.castShadow = false; s.name = 'xray'; o.parent.add(s); } }
   g.add(m);
   const blob = new THREE.Mesh(blobGeo, blobMat); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.012; g.add(blob);
   if (kind !== 'customer') { const r = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: kind === 'player' ? 0xff7a1a : 0x18c6b3, transparent: true, opacity: 0.9, depthWrite: false })); r.rotation.x = -Math.PI / 2; r.position.y = 0.02; g.add(r); }
@@ -44,8 +55,10 @@ export function makePerson(models, kind = 'customer', { night = false } = {}) {
   let cur = act.idle; cur.time = Math.random() * 2; cur.play();
   const B = (n) => m.getObjectByName('mixamorig' + n);
   const arms = [[B('LeftArm'), B('LeftForeArm'), B('LeftHand')], [B('RightArm'), B('RightForeArm'), B('RightHand')]];
+  const skeletons = []; m.traverse((o) => { if (o.isSkinnedMesh && !skeletons.includes(o.skeleton)) skeletons.push(o.skeleton); });
   g.userData = {
     hold, mixer, name,
+    dispose() { mixer.stopAllAction(); mixer.uncacheRoot(m); for (const s of skeletons) s.dispose(); }, // frees the per-character bone texture
     anim(dt, speed, carrying) {
       const want = speed > 3.9 ? act.run : speed > 0.25 ? act.walk : act.idle;
       if (want !== cur) { want.reset().play(); cur.crossFadeTo(want, 0.15, false); cur = want; }
@@ -64,6 +77,7 @@ export function makePerson(models, kind = 'customer', { night = false } = {}) {
 }
 
 // car: root on the ground at the centre, faces +z (front). Regular cars and night "trucks" (monster truck, fire truck).
+const unitPlane = new THREE.PlaneGeometry(1, 1);
 const CAR_SCALE = { muscle_blue: 1, police_classic: 1, icecream_pink: 0.86, monster_orange: 0.78, fire_red: 0.93 };
 export function makeCar(models, truck = false) {
   const name = truck ? pick(['monster_orange', 'fire_red']) : pick(['muscle_blue', 'police_classic', 'icecream_pink']);
@@ -71,7 +85,7 @@ export function makeCar(models, truck = false) {
   const wheels = []; let radius = 0.39;
   o.traverse((n) => { if (/^wheel_/.test(n.name)) { wheels.push(n); radius = n.position.y; } });
   const size = src.box.getSize(new THREE.Vector3()).multiplyScalar(s);
-  const blob = new THREE.Mesh(new THREE.PlaneGeometry(size.x * 0.95, size.z * 1.02), blobMat); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.015; g.add(blob);
+  const blob = new THREE.Mesh(unitPlane, blobMat); blob.scale.set(size.x * 0.95, size.z * 1.02, 1); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.015; g.add(blob); // shared geometry: no per-car allocation
   g.userData = { len: size.z, width: size.x, h: size.y, wheels, head: null, truck, name,
     roll(d) { for (const w of wheels) w.rotation.x += d / (radius * s); }, // wheel node origin = hub, spin axis = local X
   };

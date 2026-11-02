@@ -64,6 +64,13 @@ and they use our headless-Chrome helper from a sibling repo (`popyca-games/scrip
 - `viewcheck.mjs` puts the player on every work ring with the real camera and fails if the ring or the player is off-screen, under
   the HUD or hidden behind scenery; it also shoots the carried stacks (player and staff). `input.mjs` tests real keyboard,
   mouse and touch input. `posecheck.mjs` / `closeup.mjs` are close-up reviews of the animated characters.
+- `artefacts.mjs` + `artefacts.py`: render-artefact check. Frames are re-rendered with the camera moved 1 px and with the sun
+  turned 0.1 deg, plus a 3 s stepped clip with walking characters; flat surfaces must not change (z-fighting, acne, shimmer).
+  `zfight.mjs` scans the live scene for faces of different objects in the same plane; `coplanar.mjs` scans the GLB files
+  (coincident faces inside the models are separated by 1 mm at load time, in memory).
+- `play.mjs ... &navcheck` records every NPC position each simulation step for a whole day: no wall / glass crossing outside a
+  door, never inside a shelf or counter, NPCs at least a body radius apart, every waiting state explained by a bubble and resolved.
+- `guidecheck.mjs`: carried jerry cans / tyres name their target car, nobody-needs-it message, skippable tutorial.
 - `perf.mjs` measures FPS under CPU throttling. `media.mjs` makes the store screenshots and cover. `build.mjs` makes the itch.io zip.
 
 ## Credits

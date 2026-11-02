@@ -13,7 +13,7 @@ export function startBot(api) {
     if (pads.length) return { x: pads[0].x, z: pads[0].z, why: 'pad-' + pads[0].id };
     const tt = api.tutTarget(); if (tt) return { ...tt, why: 'tut' };
     const s = api.suggest(); if (s) return s;
-    return { x: 6, z: 3.6, why: 'idle' };
+    return { x: 8.6, z: 6.2, why: 'idle' }; // between bays, clear of parked cars and lanes
   };
   api.botTick = (dt) => {
     const snap = () => window.__bot.shifts.push({ shift: G.shift, earned: G.earned, cash: G.cash, served: G.served, lost: G.lost, rep: +G.rep.toFixed(2), gear: G.gear, unlocked: G.unlocked.size, lvl: { ...G.lvl } });
@@ -41,6 +41,92 @@ export function startBot(api) {
     if (lastPos && Math.hypot(p.x - lastPos.x, p.z - lastPos.z) < 0.002 && d > 0.3) { stuckT += dt; if (stuckT > 1.2) { stuckT = 0; repath = 0; inp().bot = { x: Math.random() - 0.5, y: Math.random() - 0.5 }; log.push('stuck at ' + p.x.toFixed(1) + ',' + p.z.toFixed(1) + ' -> ' + g.why); } } else stuckT = 0;
     lastPos = { x: p.x, z: p.z };
   };
+}
+
+// ---------------------------------------------------------------- NPC navigation recorder (every sim step of a whole day)
+// FAIL when an NPC centre crosses a wall / glass line outside a door opening, stands inside a shelf / counter / pallet / island,
+// or two NPCs overlap (centres < 0.45 m) for more than one step. Also tracks the busiest moment (most NPCs).
+export function startNavCheck(api) {
+  const R = (window.__nav = { steps: 0, cross: [], inside: [], overlap: [], stuck: [], silent: [], maxNpc: 0, maxAt: null, pairs: 0, minDist: 9 }); const prev = new Map(), olap = new Map(), st = new Map();
+  const flag = (list, o) => { if (list.length < 50) list.push(o); };
+  let clock = 0; // simulated play time only (the game clock also runs while the shift-change card is open)
+  api.qaTick = (sdt = 0) => { clock += sdt;
+    const G = api.G, L = [...api.ENT.people, ...api.ENT.staff]; R.steps++; const cols = api.activeColliders();
+    if (L.length > R.maxNpc) { R.maxNpc = L.length; R.maxAt = { shift: G.shift, t: Math.round(G.shiftT) }; }
+    for (const e of L) {
+      const p = { x: e.pos.x, z: e.pos.z }, q = prev.get(e);
+      if (q && api.crossesWall(q, p) && R.cross.length < 50) R.cross.push({ who: e.kind || 'customer', from: [q.x, q.z].map((v) => +v.toFixed(2)), to: [p.x, p.z].map((v) => +v.toFixed(2)), shift: G.shift, t: +G.shiftT.toFixed(1) });
+      for (const c of cols) if (p.x > c.x0 + 0.02 && p.x < c.x1 - 0.02 && p.z > c.z0 + 0.02 && p.z < c.z1 - 0.02) { if (R.inside.length < 50) R.inside.push({ who: e.kind || 'customer', at: [p.x, p.z].map((v) => +v.toFixed(2)), box: [c.x0, c.z0, c.x1, c.z1].map((v) => +v.toFixed(2)) }); break; }
+      prev.set(e, p);
+    }
+    // every waiting state must resolve, and be explained by a bubble on screen while it lasts
+    const T = clock, lab = api.labels;
+    const track = (e, state, moving) => { let s = st.get(e); if (!s || s.state !== state) { s = { state, since: T, moveT: T, at: { ...e.pos }, told: false }; st.set(e, s); }
+      if (Math.hypot(e.pos.x - s.at.x, e.pos.z - s.at.z) > 0.05) { s.at = { ...e.pos }; s.moveT = T; } return s; };
+    for (const c of api.ENT.people) {
+      const s = track(c, c.state); const wait = c.state === 'atStation' || c.state === 'queue';
+      if (wait && T - s.since > c.patMax / 0.8 + 6 && !s.told) { s.told = true; flag(R.stuck, { who: 'customer', state: c.state, secs: Math.round(T - s.since), shift: G.shift }); }
+      if (!wait && T - s.moveT > 10 && !s.told) { s.told = true; flag(R.stuck, { who: 'customer', state: c.state, stalled: Math.round(T - s.moveT), at: [c.pos.x, c.pos.z].map((v) => +v.toFixed(1)), shift: G.shift }); }
+      if (c.state === 'atStation' && T - s.since > 2 && !lab.has(c) && !s.told2) { s.told2 = true; flag(R.silent, { who: 'customer at shelf', secs: Math.round(T - s.since) }); }
+    }
+    for (const car of api.ENT.cars) { if (car.ambient) continue; const s = track(car, car.state);
+      const pending = car.needs && (car.needs.fuel || car.needs.jerry || car.needs.tyre);
+      if (car.state === 'wait' && !pending && T - s.since > 2 && !s.told) { s.told = true; flag(R.stuck, { who: 'car', state: 'wait (nothing pending)', secs: Math.round(T - s.since) }); }
+      if ((car.state === 'wait' || car.state === 'park') && T - s.since > 2 && !lab.has(car) && !s.told2) { s.told2 = true; flag(R.silent, { who: 'car', state: car.state, secs: Math.round(T - s.since) }); }
+      if (car.state === 'park' && T - s.since > 160 && !s.told) { s.told = true; flag(R.stuck, { who: 'car', state: 'park', secs: Math.round(T - s.since) }); }
+      if ((car.state === 'in' || car.state === 'out') && T - s.moveT > 12 && !s.told) { s.told = true; flag(R.stuck, { who: 'car', state: car.state, stalled: Math.round(T - s.moveT), at: [car.pos.x, car.pos.z].map((v) => +v.toFixed(1)) }); }
+    }
+    R.rescued = G.qaRescue || 0;
+    const now = new Set();
+    for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) { R.pairs++; const dd = Math.hypot(L[i].pos.x - L[j].pos.x, L[i].pos.z - L[j].pos.z); if (dd < R.minDist) R.minDist = +dd.toFixed(3); if (dd < 0.45) { const k = L[i].id + ':' + L[j].id; now.add(k); const n = (olap.get(k) || 0) + 1; olap.set(k, n); if (n === 2 && R.overlap.length < 50) R.overlap.push({ at: [L[i].pos.x, L[i].pos.z].map((v) => +v.toFixed(2)), shift: G.shift, t: +G.shiftT.toFixed(1) }); } }
+    for (const k of olap.keys()) if (!now.has(k)) olap.delete(k);
+  };
+}
+
+// ---------------------------------------------------------------- scene z-fight scan
+// Every visible, depth-writing mesh in the scene (static props, code-built boxes and planes, decals, instanced stock): faces of
+// DIFFERENT objects that lie within 3 mm of the same plane, face the same way (or are double-sided) and overlap in area z-fight.
+export function sceneZFight(api, { tol = 0.0005 } = {}) { // 0.6 mm: ~30x the depth resolution at 30 m with near = 2.5 m
+  const tris = [], buckets = new Map(), hits = new Map(); let n = 0;
+  const v = new THREE.Vector3(), M = new THREE.Matrix4(), IM = new THREE.Matrix4();
+  const add = (geo, mw, objId, name, ds) => {
+    const pos = geo.attributes.position, ix = geo.index ? geo.index.array : null, nT = (ix ? ix.length : pos.count) / 3; if (nT > 20000) return;
+    for (let t = 0; t < nT; t++) {
+      const p = [0, 1, 2].map((k) => v.fromBufferAttribute(pos, ix ? ix[t * 3 + k] : t * 3 + k).applyMatrix4(mw).toArray());
+      const u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]], w = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+      let nn = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]; const L = Math.hypot(...nn); if (L < 1e-8) continue; nn = nn.map((q) => q / L);
+      const d = nn[0] * p[0][0] + nn[1] * p[0][1] + nn[2] * p[0][2];
+      const T = { p, n: nn, d, objId, name, ds }; n++;
+      // bucket by quantised normal (direction kept) and offset; neighbours in offset are checked too
+      const key = nn.map((q) => Math.round(q * 50)).join(',');
+      const bk = Math.floor(d / tol); for (const k of [bk - 1, bk, bk + 1]) { const kk = key + '|' + k; if (k === bk) (buckets.get(kk) || buckets.set(kk, []).get(kk)).push(T); }
+      T.key = key; T.bk = bk; tris.push(T);
+    }
+  };
+  let id = 0;
+  api.scene.updateMatrixWorld(true);
+  api.scene.traverse((o) => {
+    if (!o.isMesh || !o.geometry || o.isSkinnedMesh) return; let vis = o.visible; o.traverseAncestors((q) => { if (!q.visible) vis = false; }); if (!vis) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material]; if (mats.every((m) => (m.transparent && !m.depthWrite) || m.colorWrite === false)) return; // skip see-through and the invisible shadow proxy if (mats.some((m) => m.depthFunc !== THREE.LessEqualDepth)) return;
+    const ds = mats.some((m) => m.side === THREE.DoubleSide); let name = o.name || o.geometry.type; o.traverseAncestors((q) => { if (q.userData && q.userData.model) name = q.userData.model; });
+    if (o.userData && o.userData.model) name = o.userData.model;
+    if (o.isInstancedMesh) { for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, IM); M.multiplyMatrices(o.matrixWorld, IM); add(o.geometry, M, 'i' + (id++), name + '#inst', ds); } }
+    else { const wp = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld); add(o.geometry, o.matrixWorld, 'o' + (id++), name + '@' + wp.toArray().map((x) => x.toFixed(1)).join(','), ds); }
+  });
+  const ov = (a, b) => { for (const tt of [a, b]) for (let i = 0; i < 3; i++) { const P = tt[i], Q = tt[(i + 1) % 3]; let ax = -(Q[1] - P[1]), ay = Q[0] - P[0]; const l = Math.hypot(ax, ay); if (l < 1e-9) continue; ax /= l; ay /= l;
+    const A = a.map((q) => q[0] * ax + q[1] * ay), B = b.map((q) => q[0] * ax + q[1] * ay); if (Math.max(...A) <= Math.min(...B) + 2e-3 || Math.max(...B) <= Math.min(...A) + 2e-3) return false; } return true; };
+  for (const A of tris) for (const k of [A.bk - 1, A.bk, A.bk + 1]) {
+    const list = buckets.get(A.key + '|' + k); if (!list) continue;
+    for (const B of list) {
+      if (B === A || B.objId === A.objId || B.objId < A.objId) continue; if (Math.abs(A.d - B.d) > tol) continue;
+      const nn = A.n, ax = Math.abs(nn[0]) > 0.9 ? [0, 1, 0] : [1, 0, 0]; let e1 = [nn[1] * ax[2] - nn[2] * ax[1], nn[2] * ax[0] - nn[0] * ax[2], nn[0] * ax[1] - nn[1] * ax[0]]; const l1 = Math.hypot(...e1); e1 = e1.map((q) => q / l1);
+      const e2 = [nn[1] * e1[2] - nn[2] * e1[1], nn[2] * e1[0] - nn[0] * e1[2], nn[0] * e1[1] - nn[1] * e1[0]], pr = (T) => T.p.map((q) => [q[0] * e1[0] + q[1] * e1[1] + q[2] * e1[2], q[0] * e2[0] + q[1] * e2[1] + q[2] * e2[2]]);
+      if (!ov(pr(A), pr(B))) continue;
+      const key = [A.name, B.name].sort().join(' / '); const h = hits.get(key) || { n: 0, at: A.p[0].map((q) => +q.toFixed(2)), gap: +Math.abs(A.d - B.d).toFixed(4) }; h.n++; hits.set(key, h);
+    }
+  }
+  // opposite-facing coincident faces only fight when one side is double-sided
+  return { tris: n, pairs: [...hits.entries()].map(([k, h]) => ({ objects: k, ...h })).sort((a, b) => b.n - a.n) };
 }
 
 // ---------------------------------------------------------------- layout gate

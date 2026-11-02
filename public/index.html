@@ -80,6 +80,8 @@ a{color:var(--orange2)}
 .pop.tip{color:var(--green);font-size:14px}
 /* tutorial hint */
 #hint{position:fixed;left:50%;bottom:calc(120px + var(--sab));transform:translateX(-50%);padding:9px 16px;font-weight:800;font-size:15px;text-align:center;max-width:min(92vw,520px);border-color:var(--orange);display:none}
+.skip{pointer-events:auto;display:block;margin:6px auto 0;background:var(--ink2);color:#fff;border-radius:10px;padding:5px 10px;font-size:12px;font-weight:800}
+#hint{pointer-events:auto}
 #hint.touch{left:calc(20px + var(--sal));transform:none;bottom:calc(200px + var(--sab));max-width:min(64vw,300px);font-size:14px}
 #hint.gear{left:auto;right:calc(14px + var(--sar));transform:none;bottom:calc(150px + var(--sab));max-width:min(70vw,300px)}
 #fingerHint{position:fixed;width:70px;height:70px;margin:-35px 0 0 -35px;pointer-events:none;display:none}
@@ -149,7 +151,7 @@ a{color:var(--orange2)}
 #loader .pump{width:64px;height:64px;margin-top:18px;animation:pumpb 1s ease-in-out infinite alternate}
 @keyframes pumpb{to{transform:translateY(-6px) rotate(-4deg)}}
 #pauseScr .card{text-align:center}
-@media (max-width:520px){#carry{bottom:auto;top:calc(82px + var(--sat));font-size:12px;white-space:nowrap}#hint.touch{bottom:calc(250px + var(--sab))}#toast{top:calc(150px + var(--sat));font-size:14px}#cash b{font-size:22px}#shiftbox{min-width:132px;padding:5px 10px}#shiftbox .clock{font-size:19px}#rep .st{width:16px;height:16px}#gearbox .knob{width:64px;height:64px}#gearbox .knob b{font-size:34px}}
+@media (max-width:520px){#carry{bottom:auto;top:calc(150px + var(--sat));font-size:12px;white-space:normal;width:max-content;max-width:calc(100vw - 24px);text-align:center;line-height:1.3}#hint.touch{bottom:calc(250px + var(--sab))}#toast{top:calc(205px + var(--sat));font-size:14px}#cash b{font-size:22px}#shiftbox{min-width:132px;padding:5px 10px}#shiftbox .clock{font-size:19px}#rep .st{width:16px;height:16px}#gearbox .knob{width:64px;height:64px}#gearbox .knob b{font-size:34px}}
 </style>
 </head>
 <body>
